@@ -43,10 +43,25 @@ git commit -m "docs: vendor manifest.schema.json from meshql-rs"
 ## Task 2: Manifest generator
 
 **Files:**
+- Modify: `examples/farm/pom.xml`
 - Create: `examples/farm/src/main/java/com/meshql/examples/farm/ManifestGenerator.java`
 - Test: `examples/farm/src/test/java/com/meshql/examples/farm/ManifestGeneratorTest.java`
 
-- [ ] **Step 1: Write the failing test**
+`examples/farm/pom.xml` currently has no JUnit dependency at all (unlike `examples/egg-economy`, `examples/events`, etc., which each declare their own) — none of this plan's new test classes will compile without it. Test-scope dependencies don't propagate transitively in Maven, so this must be added before writing the first test.
+
+- [ ] **Step 1: Add the JUnit dependency**
+
+In `examples/farm/pom.xml`, inside `<dependencies>`, add (mirroring `examples/egg-economy/pom.xml`'s "Test dependencies" section — version and scope come from the root POM's `dependencyManagement`, so no `<version>` is needed here):
+```xml
+<!-- Test dependencies -->
+<dependency>
+    <groupId>org.junit.jupiter</groupId>
+    <artifactId>junit-jupiter-api</artifactId>
+    <scope>test</scope>
+</dependency>
+```
+
+- [ ] **Step 2: Write the failing test**
 
 ```java
 package com.meshql.examples.farm;
@@ -104,12 +119,12 @@ class ManifestGeneratorTest {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 3: Run the test to verify it fails**
 
 Run: `mvn test -pl examples/farm -Dtest=ManifestGeneratorTest`
-Expected: compile error (`ManifestGenerator` doesn't exist) or FAIL.
+Expected: compile error (`ManifestGenerator` doesn't exist) or FAIL. (Not a JUnit-not-found error — Step 1 already fixed that.)
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 4: Write the implementation**
 
 ```java
 package com.meshql.examples.farm;
@@ -185,17 +200,18 @@ public class ManifestGenerator {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 5: Run the test to verify it passes**
 
 Run: `mvn test -pl examples/farm -Dtest=ManifestGeneratorTest -am`
 Expected: `Tests run: 4, Failures: 0, Errors: 0`
 
 Note: run with `-am` (also-make) the first time so dependency modules (`core`, `server`, etc.) are built; subsequent runs can drop it if nothing upstream changed.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add examples/farm/src/main/java/com/meshql/examples/farm/ManifestGenerator.java \
+git add examples/farm/pom.xml \
+        examples/farm/src/main/java/com/meshql/examples/farm/ManifestGenerator.java \
         examples/farm/src/test/java/com/meshql/examples/farm/ManifestGeneratorTest.java
 git commit -m "feat: manifest generator for examples/farm"
 ```
@@ -240,10 +256,14 @@ public class GenManifest {
 }
 ```
 
-- [ ] **Step 2: Compile the module**
+- [ ] **Step 2: Install the module and its dependencies into the local repo**
 
-Run: `mvn compile -pl examples/farm -am`
-Expected: `BUILD SUCCESS`
+`examples/farm` depends on sibling modules (`server`, `core`, `mongo`, `noop`, `restlette`) that are very likely not yet in `~/.m2` on a fresh checkout (CI never runs `mvn install`, only `mvn test`/`mvn verify`). Step 3 below runs `exec:java` as its **own separate** `mvn` invocation — Maven's reactor-based sibling-module resolution (what `-am` gives you) only holds within a single invocation, so the second process must find those siblings in the local repo instead. Installing them now avoids a "could not resolve dependencies" failure in Step 3:
+
+```bash
+mvn install -pl examples/farm -am -DskipTests
+```
+Expected: `BUILD SUCCESS`.
 
 - [ ] **Step 3: Run it to generate the committed manifest**
 
@@ -251,10 +271,12 @@ Expected: `BUILD SUCCESS`
 cd examples/farm
 mvn org.codehaus.mojo:exec-maven-plugin:3.1.0:java \
     -Dexec.mainClass=com.meshql.examples.farm.GenManifest \
-    -Dexec.classpathScope=test
+    -Dexec.classpathScope=compile
 cd ../..
 ```
 This invokes the `exec-maven-plugin`'s `java` goal ad-hoc (fully-qualified plugin coordinates), without needing to add the plugin to `examples/farm/pom.xml`. Expected output: `Wrote <path>/examples/farm/config/manifest.json`.
+
+If this still fails to resolve dependencies, double check Step 2 actually completed with `BUILD SUCCESS` — a partial/interrupted `install` can leave some sibling artifacts missing.
 
 - [ ] **Step 4: Inspect the generated file**
 
@@ -564,8 +586,8 @@ git commit -m "feat: serve GET /manifest for examples/farm"
 
 - [ ] **Step 1: Run the whole repo's test suite**
 
-Run: `mvn test -B -T 1C`
-Expected: `BUILD SUCCESS` (matches what CI's `.github/workflows/ci.yml` runs — confirms no regressions elsewhere).
+Run: `mvn test -B -T 1C && mvn verify -B -T 1C`
+Expected: `BUILD SUCCESS` for both (matches the two relevant invocations from CI's `.github/workflows/ci.yml` — confirms no regressions elsewhere).
 
 - [ ] **Step 2: Confirm nothing unintended is staged**
 
