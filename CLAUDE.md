@@ -202,13 +202,15 @@ type Item {
   id: ID!
   name: String!
   category: String
-  createdAt: Date
+  createdAt: Date         # Opt-in "honesty" as-of field — see below
   relatedItems: [Item]    # Resolved via VectorResolver
   author: Author          # Resolved via SingletonResolver
 }
 ```
 
 The `at: Float` parameter enables temporal queries (returns data as of that timestamp).
+
+**`createdAt` is opt-in, not automatic.** Every `Searcher` implementation merges the Envelope's `createdAt` into the result map alongside `id`, so declaring `createdAt: Date` (or `String`) in a type is all it takes to expose it — no resolver code needed. Omit the field from the schema and it's simply never selectable. `deleted` is never exposed in GraphQL; search results already exclude deleted/superseded versions, so there'd be nothing meaningful to show.
 
 ## REST API Endpoints
 
@@ -225,6 +227,8 @@ Restlette automatically provides:
 | `GET /api-docs` | Swagger UI |
 
 **Note:** REST responses return only the payload — the `Envelope` (with internal ID, timestamps, auth tokens) is deliberately not exposed. The URL is the canonical resource identifier per REST principles. Use GraphQL to discover IDs.
+
+**Honesty headers:** `create`/`read`/`update` responses carry `X-Meshql-Created-At` (ISO-8601 instant) and `X-Meshql-Deleted` (`true`/`false`) response headers, pulled from the Envelope without widening the JSON body. Use these to show an as-of / "pending" state in the FE instead of silently rendering stale data. Not present on `list` (one header can't represent many envelopes) or `delete` (`Repository.remove` returns only a `Boolean`, no Envelope to read a timestamp from).
 
 ## Common Patterns
 
@@ -429,6 +433,7 @@ Resolver parameter reference:
 - Always include `scalar Date` and the `at: Float` parameter for temporal queries
 - Query names: `getById` (singleton), `getAll`/`getByField` (vector)
 - MongoDB query templates: `{"payload.field": "{{param}}"}` — note the `payload.` prefix
+- Declare `createdAt: Date` on a type to opt into the as-of timestamp — see "GraphQL Schema Pattern" above
 
 ### Frontend Stack Conventions
 
