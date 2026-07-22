@@ -83,3 +83,6 @@ build/
 # Debug files
 *.debug
 *.patch
+
+# git worktrees (agent-managed isolated workspaces)
+.worktrees/
