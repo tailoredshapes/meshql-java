@@ -17,6 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 
 public class Main {
@@ -117,7 +119,8 @@ public class Main {
 
         // Create and initialize the server
         Server server = new Server(plugins);
-        server.init(config);
+        String manifestJson = Files.readString(Paths.get("config", "manifest.json"));
+        server.init(config, Map.of("/manifest", new ManifestServlet(manifestJson)));
 
         logger.info("Server started successfully on port {}", port);
         logger.info("Health check: http://localhost:{}/health", port);
@@ -126,6 +129,7 @@ public class Main {
         logger.info("  - http://localhost:{}/coop/graph", port);
         logger.info("  - http://localhost:{}/hen/graph", port);
         logger.info("  - http://localhost:{}/lay_report/graph", port);
+        logger.info("Manifest: http://localhost:{}/manifest", port);
 
         // Add shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {

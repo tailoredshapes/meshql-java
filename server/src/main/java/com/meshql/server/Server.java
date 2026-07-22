@@ -15,6 +15,7 @@ import graphql.schema.DataFetcher;
 
 import static com.tailoredshapes.stash.Stash.stash;
 import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.ee10.servlet.FilterHolder;
@@ -42,6 +43,10 @@ public class Server {
     }
 
     public void init(Config config) throws Exception {
+        init(config, Map.of());
+    }
+
+    public void init(Config config, Map<String, HttpServlet> extraServlets) throws Exception {
         // Create thread pool with virtual thread support (Java 21+)
         QueuedThreadPool threadPool = new QueuedThreadPool();
         threadPool.setVirtualThreadsExecutor(Executors.newVirtualThreadPerTaskExecutor());
@@ -100,6 +105,12 @@ public class Server {
                     logger.error("Failed to initialize Restlette at path: {}", restletteConfig.path(), e);
                 }
             }
+        }
+
+        // Extra caller-supplied servlets (e.g. a static manifest route),
+        // mounted before start so they're live from the first request.
+        for (Map.Entry<String, HttpServlet> entry : extraServlets.entrySet()) {
+            context.addServlet(new ServletHolder(entry.getValue()), entry.getKey());
         }
 
         // Start the server
