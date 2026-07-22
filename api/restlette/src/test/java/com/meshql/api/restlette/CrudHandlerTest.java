@@ -208,4 +208,41 @@ class CrudHandlerTest {
         assertTrue(resultJson.contains("\"name\":\"Hen1\""));
         assertTrue(resultJson.contains("\"name\":\"Hen2\""));
     }
+
+    /**
+     * "Honesty" headers: create/read/update responses carry the Envelope's
+     * as-of timestamp and tombstone state as headers, without widening the
+     * JSON body (which stays payload-only, per the REST identity model).
+     */
+    @Test
+    void testHonestyHeadersOnCreateReadUpdate() throws Exception {
+        var payload = stash("name", "Henny", "eggs", 5);
+        when(mockRequest.getReader()).thenReturn(new BufferedReader(new StringReader(payload.toJSONString())));
+
+        crudHandler.create(mockRequest, mockResponse);
+
+        verify(mockResponse).setHeader(eq("X-Meshql-Created-At"), matches("^\\d{4}-\\d{2}-\\d{2}T.*Z$"));
+        verify(mockResponse).setHeader("X-Meshql-Deleted", "false");
+
+        String henId = repository.list(list()).get(0).id();
+
+        reset(mockResponse);
+        when(mockResponse.getWriter()).thenReturn(new PrintWriter(responseWriter));
+        responseWriter.getBuffer().setLength(0);
+
+        crudHandler.read(mockRequest, mockResponse, henId);
+
+        verify(mockResponse).setHeader(eq("X-Meshql-Created-At"), matches("^\\d{4}-\\d{2}-\\d{2}T.*Z$"));
+        verify(mockResponse).setHeader("X-Meshql-Deleted", "false");
+
+        reset(mockResponse);
+        when(mockResponse.getWriter()).thenReturn(new PrintWriter(responseWriter));
+        responseWriter.getBuffer().setLength(0);
+        when(mockRequest.getReader()).thenReturn(new BufferedReader(new StringReader("{\"name\":\"Henny\",\"eggs\":10}")));
+
+        crudHandler.update(mockRequest, mockResponse, henId);
+
+        verify(mockResponse).setHeader(eq("X-Meshql-Created-At"), matches("^\\d{4}-\\d{2}-\\d{2}T.*Z$"));
+        verify(mockResponse).setHeader("X-Meshql-Deleted", "false");
+    }
 }

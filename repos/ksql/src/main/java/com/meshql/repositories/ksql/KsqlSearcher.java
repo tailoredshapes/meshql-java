@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +56,7 @@ public class KsqlSearcher implements Searcher {
                     Stash payload = envelope.payload();
                     if (payload != null) {
                         payload.put("id", envelope.id());
+                        payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
                         return payload;
                     }
                 }
@@ -99,6 +101,7 @@ public class KsqlSearcher implements Searcher {
                         Stash payload = envelope.payload();
                         if (payload != null) {
                             payload.put("id", envelope.id());
+                            payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
                             return payload;
                         }
                         return null;

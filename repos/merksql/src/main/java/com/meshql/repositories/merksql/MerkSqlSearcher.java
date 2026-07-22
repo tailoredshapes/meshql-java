@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -103,6 +104,7 @@ public class MerkSqlSearcher implements Searcher {
                 Stash payload = envelope.payload();
                 if (payload != null) {
                     payload.put("id", envelope.id());
+                    payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
                     return payload;
                 }
             }
@@ -133,6 +135,7 @@ public class MerkSqlSearcher implements Searcher {
                         Stash payload = envelope.payload();
                         if (payload != null) {
                             payload.put("id", envelope.id());
+                            payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
                             return payload;
                         }
                         return null;

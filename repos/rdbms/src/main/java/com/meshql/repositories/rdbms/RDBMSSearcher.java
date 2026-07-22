@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import javax.sql.DataSource;
 import java.io.IOException;
 import java.sql.*;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -76,6 +77,7 @@ public abstract class RDBMSSearcher implements Searcher {
                         Stash payload = envelope.payload();
                         if (payload != null) {
                             payload.put("id", envelope.id());
+                            payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
                             return payload;
                         }
                     } else {
@@ -119,6 +121,7 @@ public abstract class RDBMSSearcher implements Searcher {
                             Stash payload = envelope.payload();
                             if (payload != null) {
                                 payload.put("id", envelope.id());
+                                payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
                                 return payload;
                             }
                             return null;

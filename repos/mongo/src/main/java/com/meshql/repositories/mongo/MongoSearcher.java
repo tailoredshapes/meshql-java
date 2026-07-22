@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -97,6 +98,7 @@ public class MongoSearcher implements Searcher {
                     Stash payload = envelope.payload();
                     if (payload != null) {
                         payload.put("id", envelope.id());
+                        payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
                         logger.info("MongoSearcher.find() - Returning payload with keys: {}", payload.keySet());
                         return payload;
                     }
@@ -158,6 +160,7 @@ public class MongoSearcher implements Searcher {
                         Stash payload = envelope.payload();
                         if (payload != null) {
                             payload.put("id", envelope.id());
+                            payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
                             return payload;
                         }
                         return null;

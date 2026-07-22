@@ -198,4 +198,39 @@ public abstract class SearcherCertification {
 
         assertTrue(result.isEmpty());
     }
+
+    /**
+     * "Honesty" as-of field: opt-in via GraphQL schema, mirroring how "id"
+     * already works. find/findAll must merge createdAt (ISO-8601 instant)
+     * into the returned Stash so a `.graphql` type can declare
+     * `createdAt: String` and get it resolved for free.
+     */
+    @Test
+    public void shouldIncludeCreatedAtInResults() {
+        String id = saved.get(0).id();
+
+        Stash found = searcher.find(
+                templates.findById,
+                stash("id", id),
+                tokens,
+                System.currentTimeMillis()
+        );
+
+        assertTrue(found.containsKey("createdAt"), "find() result must include createdAt");
+        assertDoesNotThrow(() -> java.time.Instant.parse((String) found.get("createdAt")),
+                "createdAt must be a valid ISO-8601 instant string");
+
+        List<Stash> all = searcher.findAll(
+                templates.findAllByType,
+                stash("id", "A"),
+                tokens,
+                System.currentTimeMillis()
+        );
+        assertFalse(all.isEmpty());
+        for (Stash row : all) {
+            assertTrue(row.containsKey("createdAt"), "findAll() result must include createdAt");
+            assertDoesNotThrow(() -> java.time.Instant.parse((String) row.get("createdAt")),
+                    "createdAt must be a valid ISO-8601 instant string");
+        }
+    }
 }

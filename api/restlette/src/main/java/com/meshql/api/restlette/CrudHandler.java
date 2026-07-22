@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -64,6 +65,7 @@ public class CrudHandler {
                     authTokens);
 
             Envelope result = repository.create(envelope, tokens);
+            setHonestyHeaders(response, result);
             sendJsonResponse(response, HttpServletResponse.SC_CREATED, result.payload());
         } catch (Exception e) {
             logger.error("Failed to create resource", e);
@@ -86,6 +88,7 @@ public class CrudHandler {
                 return;
             }
 
+            setHonestyHeaders(response, envelope.get());
             sendJsonResponse(response, HttpServletResponse.SC_OK, envelope.get().payload());
         } catch (Exception e) {
             logger.error("Failed to read resource", e);
@@ -124,6 +127,7 @@ public class CrudHandler {
                     authTokens);
 
             Envelope result = repository.create(envelope, tokens);
+            setHonestyHeaders(response, result);
             sendJsonResponse(response, HttpServletResponse.SC_OK, result.payload());
         } catch (Exception e) {
             logger.error("Failed to update resource", e);
@@ -255,6 +259,16 @@ public class CrudHandler {
             logger.error("Failed to get auth tokens", e);
             return List.of();
         }
+    }
+
+    /**
+     * "Honesty" headers: the as-of timestamp and tombstone state, leaked
+     * from the otherwise-internal Envelope so callers can tell how fresh
+     * a payload is.
+     */
+    private void setHonestyHeaders(HttpServletResponse response, Envelope envelope) {
+        response.setHeader("X-Meshql-Created-At", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
+        response.setHeader("X-Meshql-Deleted", String.valueOf(envelope.deleted()));
     }
 
     /**
