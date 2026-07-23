@@ -10,7 +10,7 @@ meshql turns every entity into a pair of HTTP surfaces backed by the same store:
 - **REST restlette** at `/<entity>/api` — CRUD writes + simple reads, JSON Schema validation
 - **GraphQL graphlette** at `/<entity>/graph` — rich queries, federation to other entities, point-in-time reads
 
-Everything is stored as an **Envelope**: `Envelope(String id, Stash payload, Instant createdAt, boolean deleted, List<String> authorizedTokens)` (`com.meshql.core.Envelope`). Updates append new versions (same `id`, newer `createdAt`); deletes set `deleted = true`. Nothing is mutated or hard-deleted. This is what makes temporal queries (`at:` parameter) and audit trails free — never break it.
+Everything is stored as an **Envelope**: `Envelope(String id, Stash payload, Instant createdAt, boolean deleted, List<String> authorizedTokens)` (`com.meshql.core.Envelope`) — `Stash` is the framework's `Map<String, Object>`-like payload type. Updates append new versions (same `id`, newer `createdAt`); deletes set `deleted = true`. Nothing is mutated or hard-deleted. This is what makes temporal queries (`at:` parameter) and audit trails free — never break it.
 
 **The pattern meshql is built for** (start here for any non-trivial system): model the domain as **events** (immutable facts) and **projections** (domain models derived from events by **workers**). Front ends write events, never domain models; new domain models can be materialized by replaying history. The invariants below exist to make this sound. See `references/domain-design.md`.
 

@@ -61,7 +61,7 @@ Real multi-entity examples (`examples/egg-economy`, `examples/legacy`) use inter
 
 Resolver parameter reference (same shape for internal and external):
 - **Singleton**: `(fieldName, foreignKeyField, queryName, target)` — looks up the parent's `foreignKeyField` value, calls `queryName(id: value)` on the target.
-- **Vector**: `(fieldName, null, queryName, target)` — passes the parent's own `id` to `queryName(id: parentId)` on the target.
+- **Vector**: `(fieldName, null, queryName, target)` — passes the parent's own `id` to `queryName(id: <parent's id>)` on the target.
 
 Use full URLs only when federating across genuinely separate, independently deployed services (e.g. an anti-corruption-layer service federating to another platform — see `examples/egg-economy-sap`, `examples/egg-economy-salesforce`).
 
