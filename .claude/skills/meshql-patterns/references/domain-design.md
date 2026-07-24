@@ -63,6 +63,8 @@ Why this and not an application-level publish after the write:
 
 Because folds are (or should be) deterministic and idempotent, at-least-once delivery is enough: replaying a duplicate event recomputes the same noun.
 
+**If an event meshlette's primary store is `merkql` (via the Rust connector+worker sidecar — see `merkql-architecture`), there's no CDC bridge to build for that entity at all.** merkql is itself a log; a restlette write against it already is the log append, not something a Debezium-style bridge needs to derive afterward. The Debezium/Kafka pattern above is for entities whose primary store is a real database (Mongo, Postgres) that isn't itself a log. Don't assume merkql needs the same bridging machinery — check whether `meshql-merkql`'s direct `Repository`/`Searcher` is available in the Rust sidecar before concluding merkql can't be used for a given event entity.
+
 ## The worker, in Java
 
 A worker is an independent process or thread (not part of the meshql `Server`; see SKILL.md's compose-your-own-binary model). `examples/egg-economy/src/main/java/com/meshql/examples/egg_economy/` shows the shape:
