@@ -63,6 +63,15 @@ Why this and not an application-level publish after the write:
 
 Because folds are (or should be) deterministic and idempotent, at-least-once delivery is enough: replaying a duplicate event recomputes the same noun.
 
+**Be precise about what "idempotent" means here — the over-reading is dangerous.** A fold is idempotent over a *whole log*: replay the log from an empty projection twice and you get the same noun. That is NOT the same as idempotent *per event*, and most useful folds are not — an accumulator like `messageCount + 1` recomputes correctly from zero and inflates if handed the same event twice against state that already includes it.
+
+A worker that re-reads the log from the beginning every tick never exercises the distinction, because every tick resets and re-folds. **It becomes live the moment a worker consumes incrementally** (committed consumer offsets, a Kafka consumer group resuming where it left off), because at-least-once delivery then means a redelivered batch lands on state that may already include it.
+
+The fix is not to make every fold per-event idempotent — often impossible without storing seen-ids forever. It is to treat **the consumed offset and the fold state as one atomic artifact**: checkpoint them together, restore them together, and commit the offset *after* the projection write. A redelivered batch then lands on the state that predates it and recomputes rather than accumulates. A worker with nowhere durable to keep fold state must also keep no offset — committing a position for in-memory state means restarting at a non-zero offset with an empty projector, which silently produces a wrong noun instead of failing.
+
+Note the checkpoint is generally **not** derivable from the published projection: a projector usually holds state it deliberately never publishes (a pending-request set, an explicitly-granted role, a live-session set). Rehydrating from the projection alone loses exactly that.
+
+
 **If an event meshlette's primary store is `merkql` (via the Rust connector+worker sidecar — see `merkql-architecture`), there's no CDC bridge to build for that entity at all.** merkql is itself a log; a restlette write against it already is the log append, not something a Debezium-style bridge needs to derive afterward. The Debezium/Kafka pattern above is for entities whose primary store is a real database (Mongo, Postgres) that isn't itself a log. Don't assume merkql needs the same bridging machinery — check whether `meshql-merkql`'s direct `Repository`/`Searcher` is available in the Rust sidecar before concluding merkql can't be used for a given event entity.
 
 ## The worker, in Java
@@ -130,4 +139,5 @@ This is only sound because nothing bypasses the event log — which is exactly w
 - A noun with no worker, kept in sync by hand.
 - Treating a noun as the source of truth — if the log and the noun disagree, the log wins and the noun gets rebuilt.
 - A worker fold that isn't deterministic/idempotent (depends on wall-clock, random, or read-back state) — it breaks replay and makes at-least-once delivery unsafe.
+- **A worker that commits a consumed offset without durably checkpointing its fold state alongside it.** The two are one decision (see above): committing the offset alone means a restart resumes at a position with an empty projector, silently producing a wrong noun rather than an obvious failure.
 - An unstable Kafka consumer group id, or forgetting `consumer.commitSync()` between phases — silently reprocesses the whole log on every restart instead of resuming.
