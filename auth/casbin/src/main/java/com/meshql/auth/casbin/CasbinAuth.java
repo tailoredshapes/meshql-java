@@ -22,6 +22,25 @@ import static com.tailoredshapes.underbar.ocho.UnderBar.list;
  *
  * The authorization check compares the user's roles against the document's
  * authorized_tokens list.
+ *
+ * <h2>Why {@code enforcer.enforce(...)} is never called</h2>
+ *
+ * It is not an oversight. MeshQL resolves identity to capabilities <em>once</em>,
+ * at the boundary, and propagates the result; every check below that point is a
+ * local intersection of that token set against a record's authorized_tokens.
+ * Casbin's job here is subject -&gt; role resolution and nothing else.
+ *
+ * <p>Adding a deeper {@code enforce} is not defence in depth. It recomputes a
+ * decision already made, at every layer that repeats it, and against a remote
+ * policy engine it is a network call per layer - per record, on a vector read.
+ * The meshlettes get chatty and the cause is not visible from the call site.
+ *
+ * <p>Because the absence looks like a bug to every scanner and reviewer, it is
+ * pinned by a test rather than by a comment:
+ * {@code com.meshql.api.graphql.PolicyEvaluationCountTest#readPathMakesNoPolicyEvaluations}
+ * wraps the Enforcer in a counting decorator and asserts a read through the
+ * graphlette performs zero policy evaluations. Add an {@code enforce} call here
+ * and that test goes red the same day, saying why.
  */
 public class CasbinAuth implements Auth {
     private static final Logger logger = LoggerFactory.getLogger(CasbinAuth.class);

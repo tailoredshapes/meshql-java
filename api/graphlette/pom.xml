@@ -155,5 +155,21 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+        <!--
+            Test scope only. PolicyEvaluationCountTest counts the policy
+            evaluations a read performs, and the answer has to be zero.
+        -->
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>casbin</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>jwt</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
