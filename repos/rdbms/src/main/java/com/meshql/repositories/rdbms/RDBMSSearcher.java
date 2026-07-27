@@ -1,5 +1,6 @@
 package com.meshql.repositories.rdbms;
 
+import com.github.jknack.handlebars.Handlebars;
 import com.github.jknack.handlebars.Template;
 import com.meshql.core.Auth;
 import com.meshql.core.Envelope;
@@ -24,6 +25,14 @@ import static com.tailoredshapes.stash.Stash.stash;
 public abstract class RDBMSSearcher implements Searcher {
     private static final Logger logger = LoggerFactory.getLogger(RDBMSSearcher.class);
 
+    /**
+     * Handlebars configured for SQL string literals rather than for HTML.
+     *
+     * @see SqlLiteralEscapingStrategy
+     */
+    protected static final Handlebars SQL_HANDLEBARS =
+            new Handlebars().with(SqlLiteralEscapingStrategy.INSTANCE);
+
     private final DataSource dataSource;
     private final String tableName;
     private final Auth authorizer;
@@ -41,6 +50,23 @@ public abstract class RDBMSSearcher implements Searcher {
         this.tableName = tableName;
         this.authorizer = authorizer;
         this.timeFunc = timeFunc;
+    }
+
+    /**
+     * Compile a configured query fragment for SQL.
+     *
+     * <p>The fragment is SQL, so values interpolated into it are escaped for SQL
+     * string literals - a single quote is doubled - and not for HTML. Without
+     * this override a search for {@code O'Brien} would generate
+     * {@code = 'O&#x27;Brien'} and quietly match nothing.
+     */
+    @Override
+    public Template compileQuery(String query) {
+        try {
+            return SQL_HANDLEBARS.compileInline(query);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to compile query template: " + query, e);
+        }
     }
 
     /**

@@ -62,7 +62,7 @@ public class Root {
             Auth authorizer,
             QueryConfig config
     ) {
-        Template queryTemplate = rethrow(() -> new Handlebars().compileInline(config.query()), () ->"Check the query");
+        Template queryTemplate = rethrow(() -> searcher.compileQuery(config.query()), () ->"Check the query");
         String name = config.name();
 
         return (DataFetchingEnvironment environment) -> {
@@ -97,7 +97,7 @@ public class Root {
             Auth authorizer,
             QueryConfig config
     ) {
-        Template queryTemplate = rethrow(() -> new Handlebars().compileInline(config.query()), () ->"Check the query");
+        Template queryTemplate = rethrow(() -> searcher.compileQuery(config.query()), () ->"Check the query");
         String name = config.name();
 
         return (DataFetchingEnvironment environment) -> {
