@@ -53,6 +53,17 @@
             <artifactId>noop</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Auth implementations the server can wire up from config -->
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>jwt</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>casbin</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>

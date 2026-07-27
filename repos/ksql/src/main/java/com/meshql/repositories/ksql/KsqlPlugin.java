@@ -55,9 +55,14 @@ public class KsqlPlugin implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig sc) {
+        return createSearcher(sc, null);
+    }
+
+    @Override
+    public Searcher createSearcher(StorageConfig sc, Auth auth) {
         KsqlConfig config = (KsqlConfig) sc;
         KsqlHttpClient httpClient = getOrCreateHttpClient(config);
-        return new KsqlSearcher(httpClient, config.topic, auth);
+        return new KsqlSearcher(httpClient, config.topic, auth != null ? auth : this.auth);
     }
 
     @Override

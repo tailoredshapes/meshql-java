@@ -250,7 +250,7 @@ public class DTOFactory implements Filler {
                     (Long) parent.get("_timestamp")
                 );
 
-                String jsonResponse = graphlette.executeInternal(query);
+                String jsonResponse = graphlette.executeInternal(query, extractHeaders(env));
                 Stash response = Stash.parseJSON(jsonResponse);
 
                 if (response.containsKey("errors")) {
@@ -271,12 +271,13 @@ public class DTOFactory implements Filler {
             // Create unique key for this (graphletteName, queryName) combination
             String loaderKey = "internal:" + graphletteName + ":" + queryName;
             long timestamp = (Long) parent.get("_timestamp");
+            Map<String, Object> headers = extractHeaders(env);
 
             // Get or create DataLoader
             DataLoader<String, Stash> loader = registry.computeIfAbsent(loaderKey, k -> {
                 String selectionSet = extractSelectionSet(env);
                 logger.debug("Creating internal DataLoader for {}", loaderKey);
-                return DataLoaderFactory.createInternalLoader(graphlette, queryName, selectionSet, timestamp);
+                return DataLoaderFactory.createInternalLoader(graphlette, queryName, selectionSet, timestamp, headers);
             });
 
             return loader.load(foreignKey.toString());
@@ -319,7 +320,7 @@ public class DTOFactory implements Filler {
                     (Long) parent.get("_timestamp")
                 );
 
-                String jsonResponse = graphlette.executeInternal(query);
+                String jsonResponse = graphlette.executeInternal(query, extractHeaders(env));
                 Stash response = Stash.parseJSON(jsonResponse);
 
                 // Extract vector from response (same logic as SubgraphClient)
@@ -341,12 +342,13 @@ public class DTOFactory implements Filler {
             // Create unique key for this (graphletteName, queryName) combination
             String loaderKey = "internal-vector:" + graphletteName + ":" + queryName;
             long timestamp = (Long) parent.get("_timestamp");
+            Map<String, Object> headers = extractHeaders(env);
 
             // Get or create DataLoader for vectors
             DataLoader<String, List<Stash>> loader = registry.computeIfAbsent(loaderKey, k -> {
                 String selectionSet = extractSelectionSet(env);
                 logger.debug("Creating internal vector DataLoader for {}", loaderKey);
-                return DataLoaderFactory.createInternalVectorLoader(graphlette, queryName, selectionSet, timestamp);
+                return DataLoaderFactory.createInternalVectorLoader(graphlette, queryName, selectionSet, timestamp, headers);
             });
 
             return loader.load(foreignKey.toString());
@@ -360,9 +362,23 @@ public class DTOFactory implements Filler {
         return context;
     }
 
-    private String extractAuthHeader(DataFetchingEnvironment env) {
+    /**
+     * Pull the originating request's headers out of the GraphQL context.
+     *
+     * <p>Returns an empty map rather than null when there is no request context,
+     * which is the normal case for a genuinely internal execution.
+     */
+    private Map<String, Object> extractHeaders(DataFetchingEnvironment env) {
+        if (env == null || env.getGraphQlContext() == null) {
+            return Map.of();
+        }
         Map<String, Object> headers = env.getGraphQlContext().get("headers");
-        if (headers != null && headers.containsKey("authorization")) {
+        return headers != null ? headers : Map.of();
+    }
+
+    private String extractAuthHeader(DataFetchingEnvironment env) {
+        Map<String, Object> headers = extractHeaders(env);
+        if (headers.containsKey("authorization")) {
             return headers.get("authorization").toString();
         }
         return null;

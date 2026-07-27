@@ -48,7 +48,8 @@ public class CrudHandler {
         try {
             String body = request.getReader().lines().collect(Collectors.joining());
             Stash payload = Stash.parseJSON(body);
-            List<String> authTokens = authorizer.getAuthToken(payload);
+            // Resolve the writer's identity from the request, not from the body they sent.
+            List<String> authTokens = getAuthTokens(request);
 
             boolean isValid = validator.validate(payload).get();
             if (!isValid) {
@@ -57,14 +58,15 @@ public class CrudHandler {
             }
 
             String id = UUID.randomUUID().toString();
+            List<String> storedTokens = tokensToPersist(authTokens);
             Envelope envelope = new Envelope(
                     id,
                     payload,
                     Instant.now(),
                     false,
-                    authTokens);
+                    storedTokens);
 
-            Envelope result = repository.create(envelope, tokens);
+            Envelope result = repository.create(envelope, storedTokens);
             setHonestyHeaders(response, result);
             sendJsonResponse(response, HttpServletResponse.SC_CREATED, result.payload());
         } catch (Exception e) {
@@ -119,14 +121,15 @@ public class CrudHandler {
                 return;
             }
 
+            List<String> storedTokens = tokensToPersist(authTokens);
             Envelope envelope = new Envelope(
                     id,
                     payload,
                     Instant.now(),
                     false,
-                    authTokens);
+                    storedTokens);
 
-            Envelope result = repository.create(envelope, tokens);
+            Envelope result = repository.create(envelope, storedTokens);
             setHonestyHeaders(response, result);
             sendJsonResponse(response, HttpServletResponse.SC_OK, result.payload());
         } catch (Exception e) {
@@ -188,6 +191,7 @@ public class CrudHandler {
                     objectMapper.getTypeFactory().constructCollectionType(List.class, Map.class));
 
             List<String> authTokens = getAuthTokens(request);
+            List<String> storedTokens = tokensToPersist(authTokens);
             List<Envelope> envelopes = new ArrayList<>();
 
             for (Map<String, Object> item : items) {
@@ -205,12 +209,12 @@ public class CrudHandler {
                         payload,
                         Instant.now(),
                         false,
-                        authTokens);
+                        storedTokens);
 
                 envelopes.add(envelope);
             }
 
-            List<Envelope> results = repository.createMany(envelopes, tokens);
+            List<Envelope> results = repository.createMany(envelopes, storedTokens);
             sendJsonResponse(response, HttpServletResponse.SC_CREATED, results);
         } catch (Exception e) {
             logger.error("Failed to bulk create resources", e);
@@ -241,6 +245,31 @@ public class CrudHandler {
             sendJsonError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
                 "Failed to bulk read resources");
         }
+    }
+
+    /**
+     * Decide which authorized tokens a new record is stamped with.
+     *
+     * <p>The union of the restlette's configured tokens and the tokens Auth resolved
+     * for the writer. Previously the writer's tokens were computed and then thrown
+     * away in favour of the configured list alone, which is almost always empty -
+     * so everything written through the restlette was stored world-readable and no
+     * amount of correct filtering downstream could restrict it.
+     *
+     * <p>Both empty stays both empty: a caller presenting no credentials writes a
+     * public record. That is the documented contract - the edge authenticates, the
+     * framework authorizes - and it is deliberately preserved.
+     */
+    private List<String> tokensToPersist(List<String> callerTokens) {
+        if (callerTokens == null || callerTokens.isEmpty()) {
+            return tokens;
+        }
+        if (tokens.isEmpty()) {
+            return List.copyOf(callerTokens);
+        }
+        LinkedHashSet<String> merged = new LinkedHashSet<>(tokens);
+        merged.addAll(callerTokens);
+        return List.copyOf(merged);
     }
 
     /**

@@ -67,7 +67,7 @@ public class Root {
 
         return (DataFetchingEnvironment environment) -> {
             Stash args = new Stash(environment.getArguments());
-            List<String> authToken = authorizer.getAuthToken(args);
+            List<String> authToken = authorizer.getAuthToken(authContext(environment, args));
 
             long timestamp = getTimestamp(args);
 
@@ -102,9 +102,8 @@ public class Root {
 
         return (DataFetchingEnvironment environment) -> {
             Stash args = new Stash(environment.getArguments());
-//            GraphQLContext graphQLContext = environment.getGraphQlContext();
 
-            List<String> authToken = authorizer.getAuthToken(args);
+            List<String> authToken = authorizer.getAuthToken(authContext(environment, args));
 
             long timestamp = getTimestamp(args);
             
@@ -135,6 +134,32 @@ public class Root {
 
             return filled;
         };
+    }
+
+    /**
+     * Build the context handed to {@link Auth#getAuthToken}.
+     *
+     * <p>An Auth implementation needs the <em>request</em>, not the query. Passing
+     * only the GraphQL arguments meant that a header-reading Auth saw nothing it
+     * recognised, always resolved to no credentials, and so read authorization could
+     * never be switched on. The arguments are still included for backwards
+     * compatibility with any Auth that reads them.
+     *
+     * <p>Headers are absent for genuinely internal executions, in which case the
+     * caller resolves to no credentials - which remains deliberately permitted.
+     */
+    private static Stash authContext(DataFetchingEnvironment environment, Stash args) {
+        Stash context = new Stash();
+        context.putAll(args);
+
+        if (environment.getGraphQlContext() != null) {
+            Object headers = environment.getGraphQlContext().get("headers");
+            if (headers != null) {
+                context.put("headers", headers);
+            }
+        }
+
+        return context;
     }
 
     private static long getTimestamp(Map<String, Object> args) {

@@ -98,6 +98,20 @@ public class DataLoaderFactory {
             String selectionSet,
             long timestamp
     ) {
+        return createInternalLoader(graphlette, queryName, selectionSet, timestamp, java.util.Map.of());
+    }
+
+    /**
+     * As above, but carries the originating request's headers so the batched
+     * subgraph read is performed as the original caller rather than anonymously.
+     */
+    public static DataLoader<String, Stash> createInternalLoader(
+            Graphlette graphlette,
+            String queryName,
+            String selectionSet,
+            long timestamp,
+            java.util.Map<String, Object> headers
+    ) {
         BatchLoader<String, Stash> batchLoader = ids -> {
             logger.debug("Internal batch loader invoked with {} ids for {}", ids.size(), queryName);
 
@@ -112,7 +126,7 @@ public class DataLoaderFactory {
             String query = "{ " + aliasedQueries + " }";
 
             // Execute single internal query
-            String jsonResponse = graphlette.executeInternal(query);
+            String jsonResponse = graphlette.executeInternal(query, headers);
             Stash response = Stash.parseJSON(jsonResponse);
 
             // Check for errors
@@ -164,6 +178,20 @@ public class DataLoaderFactory {
             String selectionSet,
             long timestamp
     ) {
+        return createInternalVectorLoader(graphlette, queryName, selectionSet, timestamp, java.util.Map.of());
+    }
+
+    /**
+     * As above, but carries the originating request's headers so the batched
+     * subgraph read is performed as the original caller rather than anonymously.
+     */
+    public static DataLoader<String, List<Stash>> createInternalVectorLoader(
+            Graphlette graphlette,
+            String queryName,
+            String selectionSet,
+            long timestamp,
+            java.util.Map<String, Object> headers
+    ) {
         BatchLoader<String, List<Stash>> batchLoader = ids -> {
             logger.debug("Internal vector batch loader invoked with {} ids for {}", ids.size(), queryName);
 
@@ -178,7 +206,7 @@ public class DataLoaderFactory {
             String query = "{ " + aliasedQueries + " }";
 
             // Execute single internal query
-            String jsonResponse = graphlette.executeInternal(query);
+            String jsonResponse = graphlette.executeInternal(query, headers);
             Stash response = Stash.parseJSON(jsonResponse);
 
             // Check for errors

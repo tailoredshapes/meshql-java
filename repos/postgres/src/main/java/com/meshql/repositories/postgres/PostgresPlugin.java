@@ -27,9 +27,14 @@ public class PostgresPlugin implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig config) {
+        return createSearcher(config, null);
+    }
+
+    @Override
+    public Searcher createSearcher(StorageConfig config, Auth auth) {
         PostgresConfig pgConfig = (PostgresConfig) config;
         DataSource dataSource = getOrCreateDataSource(pgConfig);
-        return new PostgresSearcher(dataSource, pgConfig.table, auth);
+        return new PostgresSearcher(dataSource, pgConfig.table, auth != null ? auth : this.auth);
     }
 
     @Override

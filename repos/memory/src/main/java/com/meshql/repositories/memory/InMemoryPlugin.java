@@ -9,7 +9,12 @@ public class InMemoryPlugin implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig config) {
-        return new InMemorySearcher(store, new NoAuth());
+        return createSearcher(config, null);
+    }
+
+    @Override
+    public Searcher createSearcher(StorageConfig config, Auth auth) {
+        return new InMemorySearcher(store, auth != null ? auth : new NoAuth());
     }
 
     @Override

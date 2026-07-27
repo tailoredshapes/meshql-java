@@ -25,10 +25,15 @@ public class SQLitePlugin implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig config) {
+        return createSearcher(config, null);
+    }
+
+    @Override
+    public Searcher createSearcher(StorageConfig config, Auth auth) {
         assert config instanceof SQLiteConfig;
         SQLiteConfig c = (SQLiteConfig)config;
         var dataSource = buildDatasource(c);
-        return new SQLiteSearcher(dataSource, c.table, auth);
+        return new SQLiteSearcher(dataSource, c.table, auth != null ? auth : this.auth);
     }
 
     private SQLiteDataSource buildDatasource(SQLiteConfig c) {

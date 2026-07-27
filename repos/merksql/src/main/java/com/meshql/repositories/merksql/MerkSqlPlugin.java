@@ -43,9 +43,14 @@ public class MerkSqlPlugin implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig sc) {
+        return createSearcher(sc, null);
+    }
+
+    @Override
+    public Searcher createSearcher(StorageConfig sc, Auth auth) {
         MerkSqlConfig config = (MerkSqlConfig) sc;
         MerkSqlStore store = getOrCreateStore(config);
-        return new MerkSqlSearcher(store, new NoAuth());
+        return new MerkSqlSearcher(store, auth != null ? auth : new NoAuth());
     }
 
     @Override

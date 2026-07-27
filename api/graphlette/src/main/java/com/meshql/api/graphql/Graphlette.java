@@ -18,6 +18,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.dataloader.DataLoaderRegistry;
 
 import java.io.IOException;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -84,21 +87,41 @@ public class Graphlette extends HttpServlet {
     }
 
     /**
-     * Execute a GraphQL query internally without HTTP overhead.
-     * This is used for internal resolver calls between graphlettes.
-     * Creates a fresh DataLoaderRegistry for request-scoped batching.
+     * Execute a GraphQL query internally without HTTP overhead, with no request
+     * context. Callers that have a request context should use
+     * {@link #executeInternal(String, Map)} so the caller's identity survives the hop.
      *
      * @param query The GraphQL query string
      * @return The JSON response as a string
      */
     public String executeInternal(String query) {
+        return executeInternal(query, Map.of());
+    }
+
+    /**
+     * Execute a GraphQL query internally, carrying the originating request's headers.
+     *
+     * <p>The headers are what let an {@link com.meshql.core.Auth} implementation see
+     * who is asking. Without them an Auth that reads headers is handed GraphQL
+     * <em>arguments</em> instead of the request, so an authenticated identity can
+     * never reach the Searcher and per-record read filtering cannot be switched on
+     * at all. They are also what {@code DTOFactory} forwards to subgraphs, so a
+     * federated read is performed as the original caller rather than anonymously.
+     *
+     * @param query   The GraphQL query string
+     * @param headers Lower-cased request headers; empty for genuinely internal calls
+     * @return The JSON response as a string
+     */
+    public String executeInternal(String query, Map<String, Object> headers) {
         // Create fresh DataLoaderRegistry per request to prevent cache leaks
         DataLoaderRegistry registry = new DataLoaderRegistry();
 
         ExecutionInput input = ExecutionInput.newExecutionInput()
             .query(query)
             .dataLoaderRegistry(registry)
-            .graphQLContext(Map.of("dataLoaderRegistry", registry))
+            .graphQLContext(Map.of(
+                "dataLoaderRegistry", registry,
+                "headers", headers != null ? headers : Map.of()))
             .build();
 
         ExecutionResult result = graphQL.execute(input);
@@ -113,7 +136,7 @@ public class Graphlette extends HttpServlet {
             String body = request.getReader().lines().collect(Collectors.joining());
             GraphQLRequest graphQLRequest = gson.fromJson(body, GraphQLRequest.class);
 
-            String jsonResponse = executeInternal(graphQLRequest.getQuery());
+            String jsonResponse = executeInternal(graphQLRequest.getQuery(), extractHeaders(request));
 
             response.setStatus(HttpServletResponse.SC_OK);
             response.getWriter().write(jsonResponse);
@@ -121,6 +144,25 @@ public class Graphlette extends HttpServlet {
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             response.getWriter().write(gson.toJson(new ErrorResponse("Error processing GraphQL request")));
         }
+    }
+
+    /**
+     * Copy the request headers into a plain map, lower-casing the names.
+     *
+     * <p>HTTP header names are case-insensitive, but the maps they end up in are not,
+     * and every Auth implementation looks for {@code "authorization"}.
+     */
+    private static Map<String, Object> extractHeaders(HttpServletRequest request) {
+        Map<String, Object> headers = new HashMap<>();
+        Enumeration<String> names = request.getHeaderNames();
+        if (names == null) {
+            return headers;
+        }
+        while (names.hasMoreElements()) {
+            String name = names.nextElement();
+            headers.put(name.toLowerCase(Locale.ROOT), request.getHeader(name));
+        }
+        return headers;
     }
 
     private static class GraphQLRequest {

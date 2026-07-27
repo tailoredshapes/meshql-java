@@ -6,6 +6,8 @@ import com.meshql.api.graphql.Graphlette;
 import com.meshql.api.graphql.Root;
 import com.meshql.api.restlette.JSONSchemaValidator;
 import com.meshql.api.restlette.Restlette;
+import com.meshql.auth.casbin.CasbinAuth;
+import com.meshql.auth.jwt.JWTSubAuthorizer;
 import com.meshql.auth.noop.NoAuth;
 import com.meshql.core.*;
 import com.meshql.core.config.GraphletteConfig;
@@ -30,6 +32,7 @@ import java.util.concurrent.Executors;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Map;
 
 public class Server {
@@ -118,12 +121,48 @@ public class Server {
         logger.info("Server initialized on port {}", config.port());
     }
 
+    /**
+     * Build the Auth implementation for this deployment.
+     *
+     * <p>With no {@code casbinParams} the server uses {@link NoAuth}: every caller is
+     * authorized, which is the correct behaviour inside a trust boundary and the
+     * documented default.
+     *
+     * <p>With {@code casbinParams} set, the server builds a real {@link CasbinAuth}
+     * over a {@link JWTSubAuthorizer}. The JWT authorizer decodes the {@code sub}
+     * claim without verifying the signature - authentication is the edge's job -
+     * and Casbin resolves that subject to the roles which act as the caller's
+     * tokens. Record-level authorization is then the token intersection performed
+     * in {@code isAuthorized}; the enforcer is deliberately not consulted for it.
+     *
+     * <p>Previously this method logged a warning and returned {@link NoAuth}, so a
+     * deployment that configured Casbin came up with authorization disabled and said
+     * so only in a log line. Misconfiguration now fails loudly instead.
+     */
     private Auth processAuth(Config config) {
-        // For now, use NoAuth. In the future, implement Casbin auth if casbinParams is set
-        if (config.casbinParams() != null && !config.casbinParams().isEmpty()) {
-            logger.warn("Casbin auth parameters found but not yet implemented, using NoAuth");
+        List<String> params = config.casbinParams();
+
+        if (params == null || params.isEmpty()) {
+            return new NoAuth();
         }
-        return new NoAuth();
+
+        if (params.size() < 2) {
+            throw new IllegalArgumentException(
+                "casbinParams must be [modelPath, policyPath], got: " + params);
+        }
+
+        String modelPath = params.get(0);
+        String policyPath = params.get(1);
+
+        if (!Files.isReadable(Paths.get(modelPath))) {
+            throw new IllegalArgumentException("Casbin model file is not readable: " + modelPath);
+        }
+        if (!Files.isReadable(Paths.get(policyPath))) {
+            throw new IllegalArgumentException("Casbin policy file is not readable: " + policyPath);
+        }
+
+        logger.info("Authorization enabled: Casbin model={} policy={}", modelPath, policyPath);
+        return CasbinAuth.create(modelPath, policyPath, new JWTSubAuthorizer());
     }
 
     private Graphlette processGraphlette(
@@ -142,7 +181,10 @@ public class Server {
             throw new IllegalArgumentException("Plugin for storage type " + config.storage().type + " not found");
         }
 
-        Searcher searcher = plugin.createSearcher(config.storage());
+        // Pass the server's Auth explicitly: read authorization is enforced inside
+        // the Searcher, so a Searcher holding a different Auth than the rest of the
+        // server means reads go unfiltered while writes look protected.
+        Searcher searcher = plugin.createSearcher(config.storage(), auth);
 
         // Create DTO factory with both external and internal resolver support
         DTOFactory dtoFactory = new DTOFactory(
