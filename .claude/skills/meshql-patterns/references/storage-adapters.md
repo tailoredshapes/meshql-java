@@ -40,6 +40,21 @@ These are the contract, enforced by the certification suite:
 4. **Token filtering on every read.** A record is visible iff its `authorizedTokens` is empty/null, contains a wildcard, the caller holds a wildcard, or the sets intersect (`Auth.isAuthorized`). `create` stamps the caller's tokens onto the envelope.
 5. **Template rendering.** Searchers render the Handlebars template with `args` into a query, then translate keys: `id` → envelope id column/field; anything else → payload path (Mongo: `payload.<field>` dot-notation against the nested document; SQL adapters: a JSONB/column path expression). Always parameterize — never splice rendered values into SQL.
 6. **Searcher returns payloads, not envelopes.** `find`/`findAll` return the payload `Stash` with `id` merged in, ready for GraphQL resolution. Also merge in `createdAt` (ISO-8601 string, from the Envelope's `createdAt`) right next to `id` — this is what lets a `.graphql` type opt into the "honesty" as-of field (`createdAt: Date`) with zero resolver code, since the graphlette's scalar field resolver is a generic `Stash` lookup. Never merge in `deleted` — search results already exclude deleted/superseded versions, so there's nothing to expose.
+7. **Canonical result ordering: `createdAt`, then `id`.** A result set is returned in insertion order — sorted by the *resolved* version's `createdAt` (millisecond precision), tiebroken by the envelope `id` — so a `limit` truncates a meaningful prefix rather than an arbitrary subset. Adapters that happen to have a monotonic physical sequence (SQLite `rowid`) may use it to decide *which version* of an id resolves inside a millisecond, but never as the primary sort key: Postgres and Mongo have no equivalent, and cross-adapter equivalence is worth more than sub-millisecond fidelity. **Status in this port:** the SQL adapters window per id with `ORDER BY created_at DESC` and do not yet pin the `id` tiebreaker, and `RepositoryCertification`/`SearcherCertification` do not yet contain ordering cases — the Rust port does certify this (`meshql_core::envelope_order` plus dedicated ordering tests). If a design of yours leans on result order, add the cases to the certification suite and make the adapters agree; do **not** reach under an adapter for a physical sequence instead (next section).
+
+## Don't reach underneath the abstraction
+
+The certification suite is not a smoke test; it is the **contract**. Choosing a storage backend is about what you already operate, what your team knows, and what you like — not about capability. There is no practical difference in behaviour between the implementations, and that is precisely what certification exists to guarantee. The property worth protecting: **you should be able to swap the database engine and replay the queue into the new store without any end user noticing a difference.**
+
+So: **never depend on a storage-engine property the certification does not guarantee.**
+
+A recent design picked SQLite specifically so a worker could tail `_id INTEGER PRIMARY KEY` as a CDC cursor — the reasoning being that SQLite serialises writers, so `_id` order is commit order. It works, and it is reaching *underneath* the abstraction. Nothing in `Repository`/`Searcher` exposes a physical row id; nothing in certification promises one exists, or that it is dense, or that it is monotonic with commit order; Postgres and Mongo have no equivalent to offer. The moment that cursor exists, swap-and-replay is gone and the product is welded to one engine — for a property that was never part of the deal.
+
+The replacements, in order of what you were actually trying to do:
+
+- **Need a stable order over results?** Use the canonical order (semantics 7 above: `createdAt`, then `id`), and certify it if this port doesn't yet.
+- **Need a durable consumption position?** That's the Kafka consumer group's committed offset, not a row id — and it is checkpointed with the fold state as one artifact (see `references/domain-design.md`).
+- **Need events on a log at all?** That's storage-layer CDC (Debezium), or merkql-as-primary-store via the Rust sidecar — not a hand-rolled tail (same file).
 
 ## Adding a new adapter
 
