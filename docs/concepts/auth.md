@@ -85,6 +85,21 @@ Auth jwtAuth = new JWTSubAuthorizer();
 CasbinAuth auth = CasbinAuth.create("model.conf", "policy.csv", jwtAuth);
 ```
 
+Usually you don't build it by hand. Set `casbinParams` on the server config and
+MeshQL wires exactly this for you - `CasbinAuth` over `JWTSubAuthorizer` - for
+the restlettes, the graphlettes, and the Searchers alike:
+
+```java
+Config config = Config.builder()
+    .casbinParams(List.of("model.conf", "policy.csv"))
+    // ... graphlettes and restlettes
+    .build();
+```
+
+Omit `casbinParams` and the server uses `NoAuth`: every caller is authorized.
+That is the correct default inside a trust boundary, and is why credentials are
+optional rather than required - the edge authenticates, MeshQL authorizes.
+
 ```mermaid
 sequenceDiagram
     participant Request

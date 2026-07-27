@@ -28,7 +28,7 @@ Config config = Config.builder()
 | `graphlettes` | `List<GraphletteConfig>` | All GraphQL endpoints |
 | `restlettes` | `List<RestletteConfig>` | All REST endpoints |
 | `port` | `int` | HTTP server port |
-| `casbinParams` | `List<String>` | Optional Casbin RBAC config paths |
+| `casbinParams` | `List<String>` | Optional `[modelPath, policyPath]`. Set it and the server enables authorization: `CasbinAuth` over `JWTSubAuthorizer`. Omit it and every caller is authorized (`NoAuth`). Malformed or unreadable paths fail server startup. |
 
 ---
 
