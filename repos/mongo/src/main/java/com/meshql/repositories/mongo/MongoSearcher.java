@@ -76,6 +76,9 @@ public class MongoSearcher implements Searcher {
 
         // Add timestamp filter
         query.append("createdAt", new Document("$lt", new Date(timestamp)));
+        // Exclude tombstones. Every other Searcher does this (the RDBMS templates carry
+        // "AND deleted = 0"); without it a removed record stays readable through GraphQL.
+        query.append("deleted", false);
 
         logger.info("MongoSearcher.find() - Template: {}, Args: {}, Timestamp: {}, Final Query: {}",
                 queryTemplate, args, timestamp, query.toJson());
@@ -128,6 +131,9 @@ public class MongoSearcher implements Searcher {
 
         // Add timestamp filter
         query.append("createdAt", new Document("$lt", new Date(timestamp)));
+        // Exclude tombstones - see find() above. remove() marks every version of an id
+        // deleted, so filtering in the match stage cannot resurrect an older version.
+        query.append("deleted", false);
 
         logger.info("MongoSearcher.findAll() - Template: {}, Args: {}, Timestamp: {}, Final Query: {}",
                 queryTemplate, args, timestamp, query.toJson());
