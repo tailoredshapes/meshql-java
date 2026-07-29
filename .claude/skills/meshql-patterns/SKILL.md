@@ -84,7 +84,38 @@ Server server = new Server(plugins);
 server.init(config);
 ```
 
-Query templates are **Handlebars producing a JSON query**: `{"payload.farm_id": "{{id}}"}` for Mongo (note the `payload.` prefix Mongo's `Searcher` expects), or `{"farm_id": "{{id}}"}` for SQL-shaped backends whose query builder addresses payload columns directly — check the adapter you're using. The special key `id` always addresses the Envelope id, not a payload field.
+### Query templates: the shape is per-adapter, and getting it wrong fails silently
+
+A query template is a Handlebars template **written in the query language of the store behind that searcher** — it is *not* a portable JSON dialect. `Searcher.compileQuery`'s own javadoc says so (`core/src/main/java/com/meshql/core/Searcher.java:17-20`): *"A query fragment such as `id = '{{id}}'` is written in the query language of whatever store sits behind this searcher."* Mongo takes a JSON filter document; every other adapter takes a **SQL `WHERE` fragment** spliced into the searcher's outer template at `{{{filters}}}`.
+
+The rule to remember:
+
+> **Payload fields are never addressed bare — except on `memory`/`merksql`, where they always are. The Envelope's `id` is top-level everywhere.**
+
+| Adapter | Payload field `name` | Envelope `id` | Template is |
+|---|---|---|---|
+| `mongo` | `{"payload.name": "{{id}}"}` | `{"id": "{{id}}"}` | a whole Mongo filter document |
+| `postgres` | `payload->>'name' = '{{id}}'` | `id = '{{id}}'` | a SQL `WHERE` fragment |
+| `sqlite` | `json_extract(payload, '$.name') = '{{id}}'` | `id = '{{id}}'` | a SQL `WHERE` fragment |
+| `ksql` | `EXTRACTJSONFIELD(payload, '$.name') = '{{id}}'` | `id = '{{id}}'` | a ksqlDB `WHERE` fragment |
+| `memory`, `merksql` | `name = 'x'` — **bare, no prefix** | `id = 'x'` | pseudo-SQL, equality only |
+
+**Why this bites.** On Mongo, a template that omits the `payload.` prefix addresses a top-level document field that does not exist, so the query matches nothing and **returns an empty list — with no error**. `memory` and `merksql` are the mirror image: `MerkSqlSearcher.matchesCondition` (`repos/merksql/.../MerkSqlSearcher.java:66-70`) special-cases `id` and otherwise looks the field up **directly in the payload map**, so a `payload.`-prefixed key finds nothing and again returns empty:
+
+```java
+if ("id".equals(field)) {
+    actualValue = envelope.id();
+} else {
+    Object payloadValue = envelope.payload().get(field);
+```
+
+`InMemorySearcher.java:79-83` is the same logic. **This differs from the Rust `meshql-merkql` adapter**, whose matcher runs a dot-path against the serialized Envelope and therefore *requires* `payload.` — do not port templates between the two without changing them.
+
+**A by-id test passes either way**, because `id` is top-level and correct in both the right and the wrong version of a template. So: **always test a list/vector query against data you actually wrote.** A suite that only exercises `getById` will go green over a completely broken set of templates.
+
+**Matcher limits on `memory`/`merksql`: exact equality only, all conditions ANDed.** `matchesQuery` splits on `\s+AND\s+` (`MerkSqlSearcher.java:46`) and each condition on `\s*=\s*` (`:56`); anything that isn't an equality is logged and treated as a non-match. **No ranges, no `OR`, no `ORDER BY`.** Every range question must become a **materialised bucket field** — `close_period`, `occurred_on`, `size_band` — written by the worker at fold time and queried by equality. Treat that as good practice rather than a workaround: bucket fields are the portable intersection across all the adapters, so a projection built that way keeps invariant 5's swap-and-replay property. A projection leaning on Postgres range predicates silently pins itself to Postgres.
+
+**Two live gotchas on `ksql` specifically**, since its fragment is spliced raw into ksqlDB SQL (`KsqlSearcher.java:41-43`): the searcher unconditionally appends `AND deleted = false`, so an unparenthesised `OR` in your template binds looser than the tombstone filter and **leaks deleted records** — always self-parenthesize. And `KsqlSearcher` never references its `timestamp` argument, so GraphQL's `at:` is silently ignored on that adapter.
 
 ## Deployment model: compose your own binary
 
@@ -110,6 +141,9 @@ A meshql system is a small Java application owned by the service developer — t
 - A GraphQL query without `at: Float` — breaks temporal uniformity. (`at: Int` is also wrong: millisecond timestamps overflow GraphQL's 32-bit `Int`.)
 - Hard deletes, in-place updates, or reads that don't filter `deleted`.
 - A `Searcher` query path that skips `authorizedTokens` filtering.
+- **A query template written for the wrong adapter** — a bare `{"farm_id": "{{id}}"}` against Mongo, or a `payload.`-prefixed key against `memory`/`merksql`. Fails silently with an empty result set, and a `getById` test still passes. Test a vector query against written data.
+- **A range, `OR`, or sort expressed in a `memory`/`merksql` template** — that matcher is equality-and-AND only. Materialise a bucket field in the projection instead.
+- **An unparenthesised `OR` in a `ksql` template** — the searcher appends `AND deleted = false`, which binds tighter, so deleted records leak.
 - Business/aggregation logic inside an adapter module (`mongo`, `postgres`, …) — it belongs in a `Validator`, an extra servlet/route, or a projection entity fed by a worker.
 - Cross-entity joins implemented in a restlette — that's what graphlette resolvers are for (`references/federation.md`).
 - A new adapter merged without passing `RepositoryCertification`/`SearcherCertification`.

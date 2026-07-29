@@ -80,7 +80,7 @@ Config config = Config.builder()
         .build();
 ```
 
-(`{"payload.parent_id": ...}` is the Mongo `Searcher`'s query-template convention — the `payload.` prefix addresses a nested payload field in the stored document. Other adapters may address payload fields directly; check the adapter's `Searcher` for its template shape.)
+(`{"payload.parent_id": ...}` is the Mongo `Searcher`'s query-template convention — the `payload.` prefix addresses a nested payload field in the stored document. **Other adapters differ and are not interchangeable**: the SQL adapters take a `WHERE` fragment (`payload->>'parent_id' = '{{id}}'`, `json_extract(payload, '$.parent_id') = '{{id}}'`), and `memory`/`merksql` take the field bare (`parent_id = '{{id}}'`). A mismatched template returns an empty list rather than an error, and a `getById` test will still pass — so always exercise a vector query against written data. Full table in SKILL.md, "Query templates: the shape is per-adapter".)
 
 If the new entity is the *target* of relations, also add the reverse query (`getByParent`-style) and a resolver field to the parent's schema + `RootConfig`.
 

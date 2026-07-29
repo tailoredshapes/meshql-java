@@ -85,16 +85,68 @@ This is the single most reliably reinvented part of the platform. Do not build m
 
 Both solved a problem Kafka had already solved, and each paid for it: the first with engine portability, the second with throughput plus a buffer that is now a piece of stateful infrastructure someone has to reason about on restart.
 
+**Note what was actually wrong in the second case, because the next section recommends single-partition topics.** The fault was not the partition count. It was funnelling *every entity* through *one shared* topic and then writing a `Comparator` and a parking buffer to undo the resulting interleaving. One partition per topic with **one topic per event meshlette** — the next section's recommendation — is the opposite arrangement: no shared funnel, no cross-entity interleaving to undo, and therefore no re-sequencing code. The rule that survives is "write no ordering code above the queue," not "avoid single-partition topics."
+
 If you find yourself writing a `Comparator`, a re-sequencer, or a hold-back buffer on the produce side, stop: the correct amount of ordering code above the queue is none. (The **phased processing** pattern below is a different thing and remains correct — it resolves *foreign keys* across entities within one run, not a total order over events. Ordering the phases is a dependency decision; ordering events inside a topic is not yours to make.)
 
 ## Ordering versus throughput versus durability is queue configuration — and it belongs to the domain
 
 meshql deliberately does not choose between them for you. It **cannot**: it does not know what matters about your domain, and there is no defensible default.
 
-- **If causal order matters**, configure the queue for it. **Partitioning by aggregate id** — a Kafka message key of the aggregate's id rather than a round-robin/null key — keeps causally-related events (a note and the likes on it; an asset and its lifecycle transitions) in one partition, and therefore ordered, without serialising the whole deployment through a single partition. That is usually the right answer, and it is a configuration decision, not a component you write.
-- **If throughput or durability matter more**, configure for those instead — more partitions, different `acks`/replication factor, different retention — and accept the weaker cross-aggregate ordering that comes with it.
+The general principle holds everywhere: ordering, throughput and durability trade against each other, and which one wins is a fact about your domain, not about the framework. **What differs is which lever you actually have.** On both of meshql's event-log paths — the `ksql` adapter and the Debezium CDC bridge — **the Kafka message key is not yours to choose per aggregate.** The lever is topic granularity. Read the next subsection before setting a partition count.
 
-Whatever you choose, **write down in the architecture document what you prioritised and what you gave up.** It is a domain decision, so it belongs where the domain is described — next to the event storm artifact — not implied by a partition count in a `docker-compose.yml` or a Debezium properties file that nobody reads as a design statement. A reader six months later must be able to tell the difference between "we chose per-aggregate order over throughput" and "nobody thought about it."
+### Partitioning by aggregate id is not expressible on either Java event-log path
+
+**Path 1 — the `ksql` adapter.** The producer key is hardcoded to the Envelope id at all three write sites in `repos/ksql/src/main/java/com/meshql/repositories/ksql/KsqlRepository.java` — `:109` (`create`), `:205` (`remove`'s tombstone append), `:226` (`createMany`):
+
+```java
+producer.send(new ProducerRecord<>(topic, id, json)).get();
+```
+
+`KsqlConfig` is the whole config surface (`repos/ksql/src/main/java/com/meshql/repositories/ksql/KsqlConfig.java:6-12`) and has no key field, no selector, and no `Partitioner` class setting:
+
+```java
+public String bootstrapServers;
+public String ksqlDbUrl;
+public String topic;
+public int partitions = 3;
+public int replicationFactor = 1;
+public boolean autoCreate = true;
+public String acks = "all";
+```
+
+**Note `partitions = 3` is the default.** Partition *count* is configurable and applied automatically (`KsqlPlugin.java:49-50` → `KsqlRepository.initialize` → the DDL's `PARTITIONS=%d` at `KsqlRepository.java:63`), while the *key* is not. Envelope ids are unique per record, so **out of the box a ksql-backed meshlette scatters one aggregate's events across three partitions with no ordering between them.** A builder who follows the usual advice — raise the count, expect per-aggregate order — makes it worse, not better. This is a trap, not a gap.
+
+The hardcoding is also load-bearing, so do not "fix" it locally: the stream DDL declares `id VARCHAR KEY` (`KsqlRepository.java:57-63`), the materialized table is `GROUP BY id` (`:66-74`), and temporal reads filter on `record.key()` (`:300-308`).
+
+**Path 2 — the Debezium CDC bridge.** For a meshlette whose primary store is Postgres or Mongo, the bridge is Debezium (see "The event → log bridge" above), and Debezium's message key is derived from the **table primary key**. For meshql's Postgres envelope table that is `pk`, a surrogate generated *per version* (`repos/postgres/src/main/resources/sql/create/2.sql`):
+
+```sql
+pk UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+id TEXT,
+payload JSONB,
+```
+
+So the default key is not merely per-envelope but **per-version** — even two versions of the same envelope land on different partitions. `message.key.columns` can redirect the key to a *column* (`id` buys you per-envelope grouping), but the **aggregate id lives inside the `payload` JSONB**, not in a column, so aggregate-id partitioning is not reachable without writing an SMT — which is application code in the bridge, exactly what "the bridge is configured infrastructure, never code" rules out.
+
+**What to do instead: one partition per topic, one topic per event meshlette.**
+
+- Set `KsqlConfig.partitions = 1` (do **not** leave the default of 3), and provision Debezium-fed topics with one partition. This gives **total order within each topic** — a stronger guarantee than per-aggregate ordering, not a weaker one. A worker sees every event in its meshlette in append order, with no re-sequencing and no per-key reasoning.
+- Parallelism comes from **topic count**: N event meshlettes are N topics consumed by N independent workers.
+
+State the costs plainly in the architecture document:
+
+- **Single-topic write throughput is the ceiling** for any one meshlette. A high-volume event type cannot be scaled by adding partitions; the only lever is splitting it into more than one meshlette — a domain modelling decision, not a config change.
+- **There is no cross-topic ordering.** Events in different meshlettes have no defined relative order.
+- Consumer parallelism within a meshlette is capped at one — a single-partition topic cannot be shared across a consumer group.
+
+Cross-topic causality is *not* solved by partitioning — it is handled by the rejection mechanism in the next section: a worker that sees an event referencing something it hasn't observed yet emits a rejection, and that rejection **withdraws itself** when the referent arrives. That is the designed answer to "these two events are in different topics and arrived in the wrong order." Do not reach for a partition scheme, a re-sequencer, or a hold-back buffer.
+
+**Known upstream gap.** The honest fix on path 1 is a partition-key selector on `KsqlRepository`/`KsqlConfig` — a configurable function from Envelope to key, defaulting to today's envelope-id behaviour — so a deployment that genuinely wants per-aggregate partitioning can key on a payload field. The same gap exists in the Rust `MerkqlRepository` (`meshql-merkql/src/repository.rs:83`). Until it is closed, one-partition-per-topic is not a preference; it is the only configuration whose guarantee you can rely on.
+
+The `memory` and `merksql` adapters are in-process and have no partitioning concept at all; this section does not apply to them.
+
+Whatever you choose, **write down in the architecture document what you prioritised and what you gave up.** It is a domain decision, so it belongs where the domain is described — next to the event storm artifact — not implied by a partition count in a `docker-compose.yml` or a Debezium properties file that nobody reads as a design statement. A reader six months later must be able to tell the difference between "we chose total order per meshlette and capped our write throughput at one topic" and "nobody thought about it."
 
 ## A refused command is a domain object, not an error response
 
@@ -189,6 +241,7 @@ This is only sound because nothing bypasses the event log — which is exactly w
 - A worker fold that isn't deterministic/idempotent (depends on wall-clock, random, or read-back state) — it breaks replay and makes at-least-once delivery unsafe.
 - **A worker that commits a consumed offset without durably checkpointing its fold state alongside it.** The two are one decision (see above): committing the offset alone means a restart resumes at a position with an empty projector, silently producing a wrong noun rather than an obvious failure.
 - An unstable Kafka consumer group id, or forgetting `consumer.commitSync()` between phases — silently reprocesses the whole log on every restart instead of resuming.
-- **Machinery to reconstruct a total order before publishing** — a re-sequencer, a parking/hold-back buffer, a single-partition funnel, a physical-row-id cursor. The topic append defines the order; this is code written against a problem that was already solved.
+- **Machinery to reconstruct a total order before publishing** — a re-sequencer, a parking/hold-back buffer, an all-entities-through-one-topic funnel, a physical-row-id cursor. The topic append defines the order; this is code written against a problem that was already solved. (A *per-meshlette* single-partition topic is not this — see "The queue is the ordering authority.")
+- **Leaving `KsqlConfig.partitions` at its default of 3 and expecting per-aggregate ordering.** The producer key is hardcoded to the Envelope id (`KsqlRepository.java:109`), which is unique per record, so the default scatters one aggregate's events across three partitions with no ordering between them. Set it to 1: one partition per topic, one topic per event meshlette.
 - **A partition/retention/`acks` choice made silently.** Ordering vs throughput vs durability is a domain decision — record in the architecture document what you prioritised and what you gave up.
 - **A stateful domain check performed at admission and reported as a 4xx**, discarding the fact that the user tried. Admission refuses only what's refusable without domain state; everything else is a rejection object in a projection, queryable by the client.

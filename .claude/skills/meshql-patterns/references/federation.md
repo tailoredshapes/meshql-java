@@ -13,7 +13,7 @@ Defined on `RootConfig` (`com.meshql.core.config.RootConfig`, built via `RootCon
 ```
 
 - `singleton(...)` vs `vector(...)` controls whether the GraphQL field returns an object or a list — it must match the schema's return type (`Coop` vs `[Coop]`).
-- The special key `id` addresses the Envelope id; other keys address payload fields. The MongoDB `Searcher` expects a `payload.` prefix on payload keys (`payload.farm_id`); check the adapter you're using for its exact template shape — SQL-backed adapters may address the column/JSONB path differently.
+- The special key `id` addresses the Envelope id on every adapter. **How payload fields are addressed is adapter-specific and not portable** — Mongo wants `payload.farm_id` in a JSON filter document, the SQL adapters want a `WHERE` fragment (`payload->>'farm_id' = '{{id}}'` on Postgres, `json_extract(payload, '$.farm_id') = '{{id}}'` on SQLite), and `memory`/`merksql` want the field **bare** (`farm_id = '{{id}}'`). Get it wrong and the query returns an empty list with no error. See SKILL.md, "Query templates: the shape is per-adapter", for the full table.
 - Args come from the GraphQL call's arguments — `getByFarm(id: "farm-1")` renders `{"payload.farm_id": "farm-1"}`.
 
 ## The two resolver directions
