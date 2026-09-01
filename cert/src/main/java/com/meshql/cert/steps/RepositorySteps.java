@@ -51,6 +51,21 @@ public class RepositorySteps {
         createEnvelopes(dataTable);
     }
 
+    @When("I create many envelopes:")
+    public void createManyEnvelopes(DataTable dataTable) {
+        List<Map<String, String>> rows = dataTable.asMaps();
+        List<Envelope> newEnvelopes = rows.stream()
+            .map(row -> new Envelope(null, convertToStash(row), null, false, null))
+            .collect(Collectors.toList());
+
+        List<Envelope> created = world.repository.createMany(newEnvelopes, world.tokens);
+
+        // Key on the stored payload name so the step holds whatever order the backend returns.
+        for (Envelope envelope : created) {
+            world.envelopes.put(String.valueOf(envelope.payload().get("name")), envelope);
+        }
+    }
+
     @When("I create a new version of envelope {string}:")
     public void createNewVersion(String name, DataTable dataTable) {
         Envelope existingEnvelope = world.envelopes.get(name);
