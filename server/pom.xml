@@ -81,5 +81,45 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+
+        <!--
+          The shared authorization contract, run against the in-memory plugin.
+          It lives here rather than in repos/memory because the restlette and
+          graphlette use that plugin as their test double, which puts it below
+          the server in the build.
+        -->
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>cert</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>memory</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-java</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-junit-platform-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-picocontainer</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-suite</artifactId>
+            <version>1.11.4</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

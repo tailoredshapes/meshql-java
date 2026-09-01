@@ -38,13 +38,23 @@ public class MongoRepository implements Repository {
     /**
      * Applies security filters to a MongoDB query based on authorization tokens.
      *
+     * <p>A document with no authorized tokens is public and stays readable by a
+     * caller holding credentials of their own. That is the rule
+     * {@code Auth.isAuthorized} applies on the Searcher side; without it here the
+     * two surfaces disagreed, and a record written without credentials came back
+     * through the graphlette while the restlette answered 404.
+     *
      * @param tokens List of authorization tokens
      * @param filter The existing filter to enhance with security
      * @return The enhanced filter with security constraints
      */
     private Bson secureRead(List<String> tokens, Bson filter) {
         if (tokens != null && !tokens.isEmpty()) {
-            return Filters.and(filter, Filters.in("authorizedTokens", tokens));
+            return Filters.and(filter, Filters.or(
+                    Filters.in("authorizedTokens", tokens),
+                    Filters.exists("authorizedTokens", false),
+                    Filters.eq("authorizedTokens", null),
+                    Filters.size("authorizedTokens", 0)));
         }
         return filter;
     }
@@ -154,31 +164,40 @@ public class MongoRepository implements Repository {
         }
     }
 
+    /**
+     * Mark a document deleted, if the caller holds a token for it.
+     *
+     * <p>The return value reports what the update did. It used to report
+     * {@code true} unconditionally, so a caller deleting a document it holds no
+     * token for got HTTP 200 and a {@code "status": "deleted"} body while the
+     * document sat untouched. The data was safe; the answer was not.
+     */
     @Override
     public Boolean remove(String id, List<String> tokens) {
         try {
             Bson filter = secureRead(tokens, Filters.eq("id", id));
-            collection.updateMany(filter, Updates.set("deleted", true));
-            return true;
+            return collection.updateMany(filter, Updates.set("deleted", true))
+                    .getModifiedCount() > 0;
         } catch (Exception e) {
             logger.error("Error removing document: {}", e.getMessage(), e);
             return false;
         }
     }
 
+    /**
+     * Remove each id in turn, so the result says which removals happened.
+     *
+     * <p>A single bulk update cannot say which of the ids it matched, and reporting
+     * {@code true} for all of them hid unauthorized removals the same way
+     * {@link #remove} did.
+     */
     @Override
     public Map<String, Boolean> removeMany(List<String> ids, List<String> tokens) {
-        try {
-            Bson filter = secureRead(tokens, Filters.in("id", ids));
-            collection.updateMany(filter, Updates.set("deleted", true));
-
-            // Return all IDs as successfully removed
-            // Note: This is a simplification similar to the TypeScript implementation
-            return ids.stream().collect(Collectors.toMap(id -> id, id -> true));
-        } catch (Exception e) {
-            logger.error("Error removing multiple documents: {}", e.getMessage(), e);
-            return ids.stream().collect(Collectors.toMap(id -> id, id -> false));
+        Map<String, Boolean> results = new HashMap<>();
+        for (String id : ids) {
+            results.put(id, remove(id, tokens));
         }
+        return results;
     }
 
     @Override

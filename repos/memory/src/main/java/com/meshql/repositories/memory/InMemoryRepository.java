@@ -27,6 +27,31 @@ public class InMemoryRepository implements Repository {
         this.db = new ConcurrentHashMap<>();
     }
 
+    /**
+     * The visibility predicate every other backend applies inside its query.
+     *
+     * <p>A caller presenting no tokens is an internal or system read and is not
+     * filtered, matching the SQL and Mongo repositories. Otherwise an envelope is
+     * visible when it carries no authorized tokens - a record written without
+     * credentials is public - or when the caller holds one of the tokens it
+     * carries. It is the same rule {@code Auth.isAuthorized} applies on the
+     * Searcher side.
+     *
+     * <p>Until the shared authorization contract was bound to this backend, read,
+     * list and remove ignored their {@code tokens} argument entirely, so one
+     * caller's records were readable, listable and deletable by any other.
+     */
+    private static boolean visibleTo(Envelope envelope, List<String> tokens) {
+        if (tokens == null || tokens.isEmpty()) {
+            return true;
+        }
+        List<String> authorized = envelope.authorizedTokens();
+        if (authorized == null || authorized.isEmpty()) {
+            return true;
+        }
+        return authorized.stream().anyMatch(tokens::contains);
+    }
+
     @Override
     public Envelope create(Envelope envelope, List<String> tokens) {
         // Use provided ID, or fall back to name from payload, or generate UUID
@@ -74,7 +99,8 @@ public class InMemoryRepository implements Repository {
         // Find the latest envelope that is not deleted and created before or at the specified timestamp
         return envelopes.stream()
                 .filter(e -> !e.deleted() && !e.createdAt().isAfter(adjustedTimestamp))
-                .max(Comparator.comparing(Envelope::createdAt));
+                .max(Comparator.comparing(Envelope::createdAt))
+                .filter(e -> visibleTo(e, tokens));
     }
     
     @Override
@@ -104,7 +130,7 @@ public class InMemoryRepository implements Repository {
                 Envelope latestEnvelope = nonDeletedEnvelopes.get(0);
                 
                 // Add the latest envelope if it hasn't been added yet
-                if (!seen.contains(latestEnvelope.id())) {
+                if (!seen.contains(latestEnvelope.id()) && visibleTo(latestEnvelope, tokens)) {
                     seen.add(latestEnvelope.id());
                     result.add(latestEnvelope);
                 }
@@ -120,7 +146,17 @@ public class InMemoryRepository implements Repository {
         if (envelopes == null || envelopes.isEmpty()) {
             return false;
         }
-        
+
+        // A caller can only remove what it can read.
+        boolean removable = envelopes.stream()
+                .filter(e -> !e.deleted())
+                .max(Comparator.comparing(Envelope::createdAt))
+                .filter(e -> visibleTo(e, tokens))
+                .isPresent();
+        if (!removable) {
+            return false;
+        }
+
         // Mark all versions as deleted
         List<Envelope> updatedEnvelopes = envelopes.stream()
                 .map(e -> new Envelope(e.id(), e.payload(), e.createdAt(), true, e.authorizedTokens()))

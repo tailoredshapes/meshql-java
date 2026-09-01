@@ -71,6 +71,14 @@
             <artifactId>cucumber-picocontainer</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Server, for the authorization contract's end-to-end surfaces -->
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>server</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <profiles>

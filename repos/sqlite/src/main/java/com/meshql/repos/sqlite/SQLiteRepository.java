@@ -23,6 +23,23 @@ public class SQLiteRepository implements Repository {
     private final List<String> indexedFields;
     private final ObjectMapper objectMapper;
 
+    /**
+     * The visibility predicate, as SQL.
+     *
+     * <p>An envelope with no authorized tokens is public, so it stays readable by a
+     * caller holding credentials of their own. That is the same rule
+     * {@code Auth.isAuthorized} applies on the Searcher side, and dropping it here
+     * made the two surfaces disagree: a record written without credentials came
+     * back through the graphlette and returned 404 through the restlette.
+     *
+     * <p>Takes one bind parameter: the caller's tokens as a JSON array.
+     */
+    private static final String VISIBLE_TO_CALLER =
+        "AND (authorized_tokens IS NULL " +
+        "     OR json_array_length(authorized_tokens) = 0 " +
+        "     OR EXISTS (SELECT 1 FROM json_each(authorized_tokens) " +
+        "                WHERE value IN (SELECT value FROM json_each(?)))) ";
+
     public SQLiteRepository(Connection connection, String table) {
         this(connection, table, Collections.emptyList());
     }
@@ -161,7 +178,7 @@ public class SQLiteRepository implements Repository {
             "WHERE id = ? AND deleted = 0 AND created_at <= ? ", table));
             
         if (tokens != null && !tokens.isEmpty()) {
-            queryBuilder.append("AND EXISTS (SELECT 1 FROM json_each(authorized_tokens) WHERE value IN (SELECT value FROM json_each(?))) ");
+            queryBuilder.append(VISIBLE_TO_CALLER);
         }
         
         queryBuilder.append("ORDER BY created_at DESC LIMIT 1;");
@@ -208,7 +225,7 @@ public class SQLiteRepository implements Repository {
             table, placeholders));
             
         if (tokens != null && !tokens.isEmpty()) {
-            queryBuilder.append("AND EXISTS (SELECT 1 FROM json_each(authorized_tokens) WHERE value IN (SELECT value FROM json_each(?))) ");
+            queryBuilder.append(VISIBLE_TO_CALLER);
         }
         
         queryBuilder.append("ORDER BY created_at DESC;");
@@ -251,7 +268,7 @@ public class SQLiteRepository implements Repository {
             "UPDATE %s SET deleted = 1 WHERE id = ? ", table));
             
         if (tokens != null && !tokens.isEmpty()) {
-            queryBuilder.append("AND EXISTS (SELECT 1 FROM json_each(authorized_tokens) WHERE value IN (SELECT value FROM json_each(?))) ");
+            queryBuilder.append(VISIBLE_TO_CALLER);
         }
         
         try (PreparedStatement pstmt = connection.prepareStatement(queryBuilder.toString())) {
@@ -300,7 +317,7 @@ public class SQLiteRepository implements Repository {
             "SELECT * FROM %s WHERE deleted = 0 ", table));
             
         if (tokens != null && !tokens.isEmpty()) {
-            queryBuilder.append("AND EXISTS (SELECT 1 FROM json_each(authorized_tokens) WHERE value IN (SELECT value FROM json_each(?))) ");
+            queryBuilder.append(VISIBLE_TO_CALLER);
         }
         
         queryBuilder.append("ORDER BY created_at DESC;");
