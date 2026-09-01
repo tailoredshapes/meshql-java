@@ -1,5 +1,6 @@
 package com.meshql.repositories.merksql;
 
+import com.meshql.core.Auth;
 import com.meshql.core.Envelope;
 import com.meshql.core.Repository;
 import com.tailoredshapes.stash.Stash;
@@ -17,6 +18,18 @@ public class MerkSqlRepository implements Repository {
 
     public MerkSqlRepository(MerkSqlStore store) {
         this.store = store;
+    }
+
+    /**
+     * The visibility predicate every other backend applies inside its query.
+     *
+     * <p>Read, list and remove used to ignore their {@code tokens} argument
+     * entirely, so one caller's records were readable, listable and deletable by
+     * any other. {@link Auth#tokensVisibleTo} is the same rule the Searcher side
+     * applies, so the two surfaces agree.
+     */
+    private static boolean visibleTo(Envelope envelope, List<String> tokens) {
+        return Auth.tokensVisibleTo(envelope.authorizedTokens(), tokens);
     }
 
     @Override
@@ -56,7 +69,8 @@ public class MerkSqlRepository implements Repository {
 
         return envelopes.stream()
                 .filter(e -> !e.deleted() && !e.createdAt().isAfter(adjustedTimestamp))
-                .max(Comparator.comparing(Envelope::createdAt));
+                .max(Comparator.comparing(Envelope::createdAt))
+                .filter(e -> visibleTo(e, tokens));
     }
 
     @Override
@@ -82,7 +96,7 @@ public class MerkSqlRepository implements Repository {
                 nonDeleted.sort((a, b) -> b.createdAt().compareTo(a.createdAt()));
                 Envelope latest = nonDeleted.get(0);
 
-                if (!seen.contains(latest.id())) {
+                if (!seen.contains(latest.id()) && visibleTo(latest, tokens)) {
                     seen.add(latest.id());
                     result.add(latest);
                 }
@@ -92,8 +106,12 @@ public class MerkSqlRepository implements Repository {
         return result;
     }
 
+    /** A caller can only remove what it can read. */
     @Override
     public Boolean remove(String id, List<String> tokens) {
+        if (read(id, tokens, Instant.now()).isEmpty()) {
+            return false;
+        }
         return store.markDeleted(id);
     }
 

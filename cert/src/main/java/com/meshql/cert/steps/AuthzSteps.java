@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meshql.cert.AuthzCredentials;
 import com.meshql.cert.AuthzWorld;
 import com.meshql.cert.HttpClient;
+import com.meshql.core.Auth;
 import com.meshql.core.Envelope;
 import io.cucumber.datatable.DataTable;
 import io.cucumber.java.en.Given;
@@ -32,6 +33,13 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class AuthzSteps {
     private static final Logger logger = LoggerFactory.getLogger(AuthzSteps.class);
+
+    /**
+     * The credentials the harness reads storage with when it needs to see every
+     * record regardless of who wrote it. An explicit wildcard, because the absence of
+     * credentials means an anonymous caller and reaches public records only.
+     */
+    private static final List<String> SYSTEM_TOKENS = List.of(Auth.WILDCARD_TOKEN);
 
     private final AuthzWorld world;
     private final HttpClient httpClient;
@@ -244,12 +252,18 @@ public class AuthzSteps {
     }
 
     /**
-     * Resolve a document label to its id by scanning storage with no credentials.
-     * Uses the Repository directly so it keeps working even when the read path is
-     * broken - otherwise a broken read path would hide the very failures we assert.
+     * Resolve a document label to its id by scanning storage as a caller entitled to
+     * everything. Uses the Repository directly so it keeps working even when the read
+     * path is broken - otherwise a broken read path would hide the very failures we
+     * assert.
+     *
+     * <p>The entitlement is the explicit wildcard token, not the absence of
+     * credentials. Presenting no tokens once bypassed filtering in every backend, so
+     * a harness that read that way would keep working while every anonymous caller
+     * read everything.
      */
     private String resolveIdFromStorage(String label) {
-        List<Envelope> all = world.repository.list(Collections.emptyList());
+        List<Envelope> all = world.repository.list(SYSTEM_TOKENS);
         for (Envelope e : all) {
             if (e.payload() == null) {
                 continue;
@@ -265,7 +279,7 @@ public class AuthzSteps {
 
     private List<String> storedTokens(String label) {
         String id = requireId(label);
-        Optional<Envelope> envelope = world.repository.read(id, Collections.emptyList(), java.time.Instant.now());
+        Optional<Envelope> envelope = world.repository.read(id, SYSTEM_TOKENS, java.time.Instant.now());
         assertTrue(envelope.isPresent(), "Envelope for '" + label + "' not found in storage");
         List<String> tokens = envelope.get().authorizedTokens();
         return tokens == null ? List.of() : new ArrayList<>(tokens);

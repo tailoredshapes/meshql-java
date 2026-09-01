@@ -113,21 +113,16 @@ public class CasbinAuth implements Auth {
     /**
      * Check if the credentials (roles) authorize access to the data.
      *
+     * <p>Delegates to {@link Auth#tokensVisibleTo}, the one rule every read surface
+     * shares, so the Searcher and the Repository cannot drift apart.
+     *
      * @param credentials List of roles from getAuthToken
      * @param data The envelope containing authorized_tokens
      * @return true if any role matches authorized_tokens, or if authorized_tokens is empty
      */
     @Override
     public boolean isAuthorized(List<String> credentials, Envelope data) {
-        List<String> authorizedTokens = data.authorizedTokens();
-
-        // Allow access if authorized_tokens is empty or null
-        if (authorizedTokens == null || authorizedTokens.isEmpty()) {
-            return true;
-        }
-
-        // Check if any of the credentials (roles) match authorized tokens
-        return authorizedTokens.stream().anyMatch(credentials::contains);
+        return Auth.tokensVisibleTo(data.authorizedTokens(), credentials);
     }
 
     /**

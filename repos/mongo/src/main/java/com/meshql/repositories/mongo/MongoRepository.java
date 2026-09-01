@@ -1,6 +1,7 @@
 package com.meshql.repositories.mongo;
 
 import com.fasterxml.uuid.Generators;
+import com.meshql.core.Auth;
 import com.meshql.core.Envelope;
 import com.meshql.core.Repository;
 import com.mongodb.WriteConcern;
@@ -40,23 +41,36 @@ public class MongoRepository implements Repository {
      *
      * <p>A document with no authorized tokens is public and stays readable by a
      * caller holding credentials of their own. That is the rule
-     * {@code Auth.isAuthorized} applies on the Searcher side; without it here the
+     * {@link Auth#tokensVisibleTo} applies on the Searcher side; without it here the
      * two surfaces disagreed, and a record written without credentials came back
      * through the graphlette while the restlette answered 404.
+     *
+     * <p>The filter applies to every caller, including one presenting no tokens. It
+     * used to be added only when the caller held tokens, which gave an anonymous
+     * request an unfiltered read of everything: a document is public because it
+     * carries no authorized tokens, never because the caller carries none. A caller
+     * that needs to see everything holds {@link Auth#WILDCARD_TOKEN}, and that same
+     * token is matched on the document side so a document marked readable by
+     * everyone is matched too.
      *
      * @param tokens List of authorization tokens
      * @param filter The existing filter to enhance with security
      * @return The enhanced filter with security constraints
      */
     private Bson secureRead(List<String> tokens, Bson filter) {
-        if (tokens != null && !tokens.isEmpty()) {
-            return Filters.and(filter, Filters.or(
-                    Filters.in("authorizedTokens", tokens),
-                    Filters.exists("authorizedTokens", false),
-                    Filters.eq("authorizedTokens", null),
-                    Filters.size("authorizedTokens", 0)));
+        if (Auth.seesEverything(tokens)) {
+            return filter;
         }
-        return filter;
+        LinkedHashSet<String> matched = new LinkedHashSet<>();
+        if (tokens != null) {
+            matched.addAll(tokens);
+        }
+        matched.add(Auth.WILDCARD_TOKEN);
+        return Filters.and(filter, Filters.or(
+                Filters.in("authorizedTokens", matched),
+                Filters.exists("authorizedTokens", false),
+                Filters.eq("authorizedTokens", null),
+                Filters.size("authorizedTokens", 0)));
     }
 
     @Override

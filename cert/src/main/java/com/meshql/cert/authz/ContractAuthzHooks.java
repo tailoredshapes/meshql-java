@@ -75,9 +75,10 @@ public abstract class ContractAuthzHooks {
         plugins.put(backend.storage().type, backend.plugin());
 
         // Creating the repository is also what creates the table, collection or
-        // stream, so it happens before the server takes its first request. The
-        // null Auth is deliberate: this handle is the certification's window onto
-        // storage and must not filter what it sees.
+        // stream, so it happens before the server takes its first request. The null
+        // Auth is deliberate: this handle is the certification's window onto storage,
+        // and it opens that window with the wildcard token rather than by holding an
+        // Auth of its own. See ContractAuthzSteps.SYSTEM_TOKENS.
         world.repository = backend.plugin().createRepository(backend.storage(), null);
 
         world.env = new ContractAuthzEnv(

@@ -1,5 +1,6 @@
 package com.meshql.repositories.memory;
 
+import com.meshql.core.Auth;
 import com.meshql.core.Envelope;
 import com.meshql.core.Repository;
 import com.tailoredshapes.stash.Stash;
@@ -30,26 +31,22 @@ public class InMemoryRepository implements Repository {
     /**
      * The visibility predicate every other backend applies inside its query.
      *
-     * <p>A caller presenting no tokens is an internal or system read and is not
-     * filtered, matching the SQL and Mongo repositories. Otherwise an envelope is
-     * visible when it carries no authorized tokens - a record written without
-     * credentials is public - or when the caller holds one of the tokens it
-     * carries. It is the same rule {@code Auth.isAuthorized} applies on the
-     * Searcher side.
+     * <p>An envelope is visible when it carries no authorized tokens - a record
+     * written without credentials is public - or when the caller holds one of the
+     * tokens it carries, or when either side holds the wildcard. It is the same
+     * rule {@link Auth#tokensVisibleTo} applies on the Searcher side.
+     *
+     * <p>A caller presenting no tokens used to be treated as an internal or system
+     * read and was not filtered at all, so an anonymous HTTP request read every
+     * record any credentialed caller had written. A reader that needs to see
+     * everything now says so with the wildcard token.
      *
      * <p>Until the shared authorization contract was bound to this backend, read,
      * list and remove ignored their {@code tokens} argument entirely, so one
      * caller's records were readable, listable and deletable by any other.
      */
     private static boolean visibleTo(Envelope envelope, List<String> tokens) {
-        if (tokens == null || tokens.isEmpty()) {
-            return true;
-        }
-        List<String> authorized = envelope.authorizedTokens();
-        if (authorized == null || authorized.isEmpty()) {
-            return true;
-        }
-        return authorized.stream().anyMatch(tokens::contains);
+        return Auth.tokensVisibleTo(envelope.authorizedTokens(), tokens);
     }
 
     @Override

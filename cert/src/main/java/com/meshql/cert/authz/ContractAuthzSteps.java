@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meshql.cert.AuthzCredentials;
 import com.meshql.cert.HttpClient;
+import com.meshql.core.Auth;
 import com.meshql.core.Envelope;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
@@ -48,6 +49,14 @@ public class ContractAuthzSteps {
      * can land in the same millisecond as beta's creation.
      */
     private static final long CLOCK_GAP_MS = 50;
+
+    /**
+     * The credentials the harness reads storage with when it needs to see every
+     * record regardless of who wrote it — resolving an id, or inspecting the tokens
+     * a write stored. An explicit wildcard, because the absence of credentials means
+     * an anonymous caller and reaches public records only.
+     */
+    private static final List<String> SYSTEM_TOKENS = List.of(Auth.WILDCARD_TOKEN);
 
     private final ContractAuthzWorld world;
     private final HttpClient httpClient;
@@ -318,13 +327,19 @@ public class ContractAuthzSteps {
     }
 
     /**
-     * Resolve a widget name to its id by scanning storage with no credentials.
-     * Goes through the Repository rather than a read surface so it keeps working
-     * when the read path is broken — otherwise a broken read path would hide the
-     * very failures these scenarios assert.
+     * Resolve a widget name to its id by scanning storage as a caller entitled to
+     * everything. Goes through the Repository rather than a read surface so it keeps
+     * working when the read path is broken — otherwise a broken read path would hide
+     * the very failures these scenarios assert.
+     *
+     * <p>The entitlement is the explicit wildcard token, not the absence of
+     * credentials. Presenting no tokens once bypassed filtering everywhere, which is
+     * exactly the hole {@code An uncredentialed caller reaches public records and
+     * nothing else} exists to catch: a harness that reads that way would keep working
+     * while every anonymous caller read everything.
      */
     private String resolveIdFromStorage(String name) {
-        for (Envelope envelope : world.repository.list(Collections.emptyList())) {
+        for (Envelope envelope : world.repository.list(SYSTEM_TOKENS)) {
             if (envelope.payload() != null && name.equals(envelope.payload().get("name"))) {
                 return envelope.id();
             }
@@ -334,7 +349,7 @@ public class ContractAuthzSteps {
 
     private List<String> storedTokens(String name) {
         Optional<Envelope> envelope =
-                world.repository.read(widgetId(name), Collections.emptyList(), Instant.now());
+                world.repository.read(widgetId(name), SYSTEM_TOKENS, Instant.now());
         assertTrue(envelope.isPresent(), "Widget '" + name + "' is not in storage at all");
         List<String> tokens = envelope.get().authorizedTokens();
         return tokens == null ? List.of() : new ArrayList<>(tokens);

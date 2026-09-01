@@ -3,6 +3,7 @@ package com.meshql.repositories.postgres;
 import com.fasterxml.uuid.Generators;
 import com.github.jknack.handlebars.Handlebars;
 import com.github.jknack.handlebars.Template;
+import com.meshql.core.Auth;
 import com.meshql.core.Envelope;
 import com.meshql.core.Repository;
 import org.slf4j.Logger;
@@ -43,6 +44,43 @@ public class PostgresRepository implements Repository {
     private final String tableName;
     public final Handlebars handlebars;
     private final SqlTemplates sqlTemplates;
+
+    /**
+     * Fill in the visibility half of a query's template context.
+     *
+     * <p>The predicate applies to every caller, including one presenting no tokens.
+     * It used to be rendered only when the caller held tokens, which gave an
+     * anonymous request an unfiltered read of everything: an envelope is public
+     * because it carries no authorized tokens, never because the caller carries
+     * none. A caller that needs to see everything holds
+     * {@link Auth#WILDCARD_TOKEN}, and that is the only way to skip the predicate.
+     *
+     * <p>The matched tokens are the caller's own plus the wildcard, so an envelope
+     * marked readable by everyone is matched too. The list is therefore never
+     * empty, and the rendered {@code IN} clause always has at least one parameter.
+     */
+    private static void applyVisibility(Map<String, Object> context, List<String> tokens) {
+        boolean filtered = !Auth.seesEverything(tokens);
+        context.put("filtered", filtered);
+        if (filtered) {
+            context.put("tokens", visibilityTokens(tokens));
+        }
+    }
+
+    /** The tokens a filtered query binds, in the order the template renders them. */
+    private static List<String> visibilityTokens(List<String> tokens) {
+        LinkedHashSet<String> matched = new LinkedHashSet<>();
+        if (tokens != null) {
+            matched.addAll(tokens);
+        }
+        matched.add(Auth.WILDCARD_TOKEN);
+        return List.copyOf(matched);
+    }
+
+    /** The tokens to bind for this call, or empty when the query carries no predicate. */
+    private static List<String> boundTokens(List<String> tokens) {
+        return Auth.seesEverything(tokens) ? List.of() : visibilityTokens(tokens);
+    }
 
     /**
      * Constructor for PostgresRepository.
@@ -248,10 +286,7 @@ public class PostgresRepository implements Repository {
         try {
             Map<String, Object> context = new HashMap<>();
             context.put("tableName", tableName);
-            context.put("hasTokens", tokens != null && !tokens.isEmpty());
-            if (tokens != null && !tokens.isEmpty()) {
-                context.put("tokens", tokens);
-            }
+            applyVisibility(context, tokens);
 
             String sql = sqlTemplates.read().apply(context);
 
@@ -261,11 +296,10 @@ public class PostgresRepository implements Repository {
                 stmt.setString(1, id);
                 stmt.setTimestamp(2, instantToTimestamp(createdAt));
 
-                // Set token parameters if needed
-                if (tokens != null && !tokens.isEmpty()) {
-                    for (int i = 0; i < tokens.size(); i++) {
-                        stmt.setString(i + 3, tokens.get(i));
-                    }
+                // Bind the visibility predicate's tokens, if the query carries one.
+                List<String> bound = boundTokens(tokens);
+                for (int i = 0; i < bound.size(); i++) {
+                    stmt.setString(i + 3, bound.get(i));
                 }
 
                 try (ResultSet rs = stmt.executeQuery()) {
@@ -294,10 +328,7 @@ public class PostgresRepository implements Repository {
         try {
             Map<String, Object> context = new HashMap<>();
             context.put("tableName", tableName);
-            context.put("hasTokens", tokens != null && !tokens.isEmpty());
-            if (tokens != null && !tokens.isEmpty()) {
-                context.put("tokens", tokens);
-            }
+            applyVisibility(context, tokens);
 
             String sql = sqlTemplates.readMany().apply(context);
 
@@ -307,11 +338,10 @@ public class PostgresRepository implements Repository {
                 // Join ids with commas for the string_to_array function
                 stmt.setString(1, String.join(",", ids));
 
-                // Set token parameters if needed
-                if (tokens != null && !tokens.isEmpty()) {
-                    for (int i = 0; i < tokens.size(); i++) {
-                        stmt.setString(i + 2, tokens.get(i));
-                    }
+                // Bind the visibility predicate's tokens, if the query carries one.
+                List<String> bound = boundTokens(tokens);
+                for (int i = 0; i < bound.size(); i++) {
+                    stmt.setString(i + 2, bound.get(i));
                 }
 
                 try (ResultSet rs = stmt.executeQuery()) {
@@ -336,10 +366,7 @@ public class PostgresRepository implements Repository {
         try {
             Map<String, Object> context = new HashMap<>();
             context.put("tableName", tableName);
-            context.put("hasTokens", tokens != null && !tokens.isEmpty());
-            if (tokens != null && !tokens.isEmpty()) {
-                context.put("tokens", tokens);
-            }
+            applyVisibility(context, tokens);
 
             String sql = sqlTemplates.remove().apply(context);
 
@@ -348,11 +375,10 @@ public class PostgresRepository implements Repository {
 
                 stmt.setString(1, id);
 
-                // Set token parameters if needed
-                if (tokens != null && !tokens.isEmpty()) {
-                    for (int i = 0; i < tokens.size(); i++) {
-                        stmt.setString(i + 2, tokens.get(i));
-                    }
+                // Bind the visibility predicate's tokens, if the query carries one.
+                List<String> bound = boundTokens(tokens);
+                for (int i = 0; i < bound.size(); i++) {
+                    stmt.setString(i + 2, bound.get(i));
                 }
 
                 int affectedRows = stmt.executeUpdate();
@@ -376,10 +402,7 @@ public class PostgresRepository implements Repository {
         try {
             Map<String, Object> context = new HashMap<>();
             context.put("tableName", tableName);
-            context.put("hasTokens", tokens != null && !tokens.isEmpty());
-            if (tokens != null && !tokens.isEmpty()) {
-                context.put("tokens", tokens);
-            }
+            applyVisibility(context, tokens);
 
             String sql = sqlTemplates.removeMany().apply(context);
 
@@ -389,11 +412,10 @@ public class PostgresRepository implements Repository {
                 // Join ids with commas for the string_to_array function
                 stmt.setString(1, String.join(",", ids));
 
-                // Set token parameters if needed
-                if (tokens != null && !tokens.isEmpty()) {
-                    for (int i = 0; i < tokens.size(); i++) {
-                        stmt.setString(i + 2, tokens.get(i));
-                    }
+                // Bind the visibility predicate's tokens, if the query carries one.
+                List<String> bound = boundTokens(tokens);
+                for (int i = 0; i < bound.size(); i++) {
+                    stmt.setString(i + 2, bound.get(i));
                 }
 
                 int affectedRows = stmt.executeUpdate();
@@ -435,21 +457,17 @@ public class PostgresRepository implements Repository {
         try {
             Map<String, Object> context = new HashMap<>();
             context.put("tableName", tableName);
-            context.put("hasTokens", tokens != null && !tokens.isEmpty());
-            if (tokens != null && !tokens.isEmpty()) {
-                context.put("tokens", tokens);
-            }
+            applyVisibility(context, tokens);
 
             String sql = sqlTemplates.list().apply(context);
 
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-                // Set token parameters if needed
-                if (tokens != null && !tokens.isEmpty()) {
-                    for (int i = 0; i < tokens.size(); i++) {
-                        stmt.setString(i + 1, tokens.get(i));
-                    }
+                // Bind the visibility predicate's tokens, if the query carries one.
+                List<String> bound = boundTokens(tokens);
+                for (int i = 0; i < bound.size(); i++) {
+                    stmt.setString(i + 1, bound.get(i));
                 }
 
                 try (ResultSet rs = stmt.executeQuery()) {

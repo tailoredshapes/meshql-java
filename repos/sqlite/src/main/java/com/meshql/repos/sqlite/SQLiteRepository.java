@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.uuid.Generators;
+import com.meshql.core.Auth;
 import com.meshql.core.Envelope;
 import com.meshql.core.Repository;
 import com.tailoredshapes.stash.Stash;
@@ -28,17 +29,36 @@ public class SQLiteRepository implements Repository {
      *
      * <p>An envelope with no authorized tokens is public, so it stays readable by a
      * caller holding credentials of their own. That is the same rule
-     * {@code Auth.isAuthorized} applies on the Searcher side, and dropping it here
+     * {@link Auth#tokensVisibleTo} applies on the Searcher side, and dropping it here
      * made the two surfaces disagree: a record written without credentials came
      * back through the graphlette and returned 404 through the restlette.
      *
-     * <p>Takes one bind parameter: the caller's tokens as a JSON array.
+     * <p>The predicate applies to every caller, including one presenting no tokens.
+     * It used to be appended only when the caller held tokens, which gave an
+     * anonymous request an unfiltered read of everything. A caller that needs to see
+     * everything holds {@link Auth#WILDCARD_TOKEN}, and {@link #visibilityTokens}
+     * carries that same token on the envelope side.
+     *
+     * <p>Takes one bind parameter: the tokens to match as a JSON array.
      */
     private static final String VISIBLE_TO_CALLER =
         "AND (authorized_tokens IS NULL " +
         "     OR json_array_length(authorized_tokens) = 0 " +
         "     OR EXISTS (SELECT 1 FROM json_each(authorized_tokens) " +
         "                WHERE value IN (SELECT value FROM json_each(?)))) ";
+
+    /**
+     * The tokens the predicate matches against: the caller's own, plus the wildcard
+     * so an envelope marked readable by everyone is matched too.
+     */
+    private static List<String> visibilityTokens(List<String> tokens) {
+        LinkedHashSet<String> matched = new LinkedHashSet<>();
+        if (tokens != null) {
+            matched.addAll(tokens);
+        }
+        matched.add(Auth.WILDCARD_TOKEN);
+        return List.copyOf(matched);
+    }
 
     public SQLiteRepository(Connection connection, String table) {
         this(connection, table, Collections.emptyList());
@@ -177,7 +197,8 @@ public class SQLiteRepository implements Repository {
             "SELECT * FROM %s " +
             "WHERE id = ? AND deleted = 0 AND created_at <= ? ", table));
             
-        if (tokens != null && !tokens.isEmpty()) {
+        boolean filtered = !Auth.seesEverything(tokens);
+        if (filtered) {
             queryBuilder.append(VISIBLE_TO_CALLER);
         }
         
@@ -187,8 +208,8 @@ public class SQLiteRepository implements Repository {
             pstmt.setString(1, id);
             pstmt.setLong(2, atMs);
             
-            if (tokens != null && !tokens.isEmpty()) {
-                pstmt.setString(3, objectMapper.writeValueAsString(tokens));
+            if (filtered) {
+                pstmt.setString(3, objectMapper.writeValueAsString(visibilityTokens(tokens)));
             }
             
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -224,7 +245,8 @@ public class SQLiteRepository implements Repository {
             "WHERE id IN (%s) AND deleted = 0 AND created_at <= ? ", 
             table, placeholders));
             
-        if (tokens != null && !tokens.isEmpty()) {
+        boolean filtered = !Auth.seesEverything(tokens);
+        if (filtered) {
             queryBuilder.append(VISIBLE_TO_CALLER);
         }
         
@@ -239,8 +261,8 @@ public class SQLiteRepository implements Repository {
             
             pstmt.setLong(paramIndex++, now);
             
-            if (tokens != null && !tokens.isEmpty()) {
-                pstmt.setString(paramIndex, objectMapper.writeValueAsString(tokens));
+            if (filtered) {
+                pstmt.setString(paramIndex, objectMapper.writeValueAsString(visibilityTokens(tokens)));
             }
             
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -267,15 +289,16 @@ public class SQLiteRepository implements Repository {
         StringBuilder queryBuilder = new StringBuilder(String.format(
             "UPDATE %s SET deleted = 1 WHERE id = ? ", table));
             
-        if (tokens != null && !tokens.isEmpty()) {
+        boolean filtered = !Auth.seesEverything(tokens);
+        if (filtered) {
             queryBuilder.append(VISIBLE_TO_CALLER);
         }
         
         try (PreparedStatement pstmt = connection.prepareStatement(queryBuilder.toString())) {
             pstmt.setString(1, id);
             
-            if (tokens != null && !tokens.isEmpty()) {
-                pstmt.setString(2, objectMapper.writeValueAsString(tokens));
+            if (filtered) {
+                pstmt.setString(2, objectMapper.writeValueAsString(visibilityTokens(tokens)));
             }
             
             int changes = pstmt.executeUpdate();
@@ -316,15 +339,16 @@ public class SQLiteRepository implements Repository {
         StringBuilder queryBuilder = new StringBuilder(String.format(
             "SELECT * FROM %s WHERE deleted = 0 ", table));
             
-        if (tokens != null && !tokens.isEmpty()) {
+        boolean filtered = !Auth.seesEverything(tokens);
+        if (filtered) {
             queryBuilder.append(VISIBLE_TO_CALLER);
         }
         
         queryBuilder.append("ORDER BY created_at DESC;");
         
         try (PreparedStatement pstmt = connection.prepareStatement(queryBuilder.toString())) {
-            if (tokens != null && !tokens.isEmpty()) {
-                pstmt.setString(1, objectMapper.writeValueAsString(tokens));
+            if (filtered) {
+                pstmt.setString(1, objectMapper.writeValueAsString(visibilityTokens(tokens)));
             }
             
             try (ResultSet rs = pstmt.executeQuery()) {

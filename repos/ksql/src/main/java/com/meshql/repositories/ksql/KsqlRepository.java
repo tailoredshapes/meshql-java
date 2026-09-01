@@ -50,6 +50,20 @@ public class KsqlRepository implements Repository {
         this.auth = auth;
     }
 
+    /**
+     * Whether the caller is entitled to see this envelope.
+     *
+     * <p>Delegates to the configured Auth so a deployment's own rule applies, and
+     * falls back to {@link Auth#tokensVisibleTo} when the repository was built
+     * without one. The fallback used to be an unconditional yes, so a repository
+     * handle built with a null Auth read every record regardless of tokens.
+     */
+    private boolean visibleTo(Envelope envelope, List<String> tokens) {
+        return auth != null
+                ? auth.isAuthorized(tokens, envelope)
+                : Auth.tokensVisibleTo(envelope.authorizedTokens(), tokens);
+    }
+
     public void initialize(int partitions, int replicationFactor) {
         String streamName = topic.replace("-", "_") + "_stream";
 
@@ -148,8 +162,7 @@ public class KsqlRepository implements Repository {
                 return Optional.empty();
             }
 
-            return latest
-                    .filter(e -> auth == null || auth.isAuthorized(tokens, e));
+            return latest.filter(e -> visibleTo(e, tokens));
         } catch (Exception e) {
             logger.error("Error reading document: {}", e.getMessage(), e);
             return Optional.empty();
@@ -172,7 +185,7 @@ public class KsqlRepository implements Repository {
                                 return rowToEnvelope(id, row);
                             })
                             .filter(e -> !e.deleted())
-                            .filter(e -> auth == null || auth.isAuthorized(tokens, e))
+                            .filter(e -> visibleTo(e, tokens))
                             .collect(Collectors.toList());
                 }
                 Thread.sleep(POLL_INTERVAL_MS);
