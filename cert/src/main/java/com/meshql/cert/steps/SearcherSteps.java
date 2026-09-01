@@ -11,6 +11,8 @@ import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 
 import java.lang.reflect.Field;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -102,6 +104,16 @@ public class SearcherSteps {
         world.searchResults = world.searcher.findAll(template, args, world.tokens, System.currentTimeMillis());
     }
 
+    @When("I search all using template {string} with a limit of {int} and parameters:")
+    public void searchAllUsingTemplateWithLimit(String templateName, int limit, DataTable dataTable) {
+        Map<String, String> params = dataTable.asMaps().get(0);
+        Stash args = prepareSearchParams(templateName, params);
+        args.put("limit", limit);
+
+        Template template = getTemplate(templateName);
+        world.searchResults = world.searcher.findAll(template, args, world.tokens, System.currentTimeMillis());
+    }
+
     @Then("the search result should be empty")
     public void searchResultShouldBeEmpty() {
         assertNotNull(world.searchResult);
@@ -144,7 +156,36 @@ public class SearcherSteps {
         assertTrue(found, "Expected to find envelope with name=" + name);
     }
 
+    @Then("the search result should have a valid createdAt")
+    public void searchResultShouldHaveValidCreatedAt() {
+        assertNotNull(world.searchResult);
+        assertValidCreatedAt(world.searchResult);
+    }
+
+    @Then("every result should have a valid createdAt")
+    public void everyResultShouldHaveValidCreatedAt() {
+        assertNotNull(world.searchResults);
+        assertFalse(world.searchResults.isEmpty(), "Expected at least one result to carry a createdAt");
+        world.searchResults.forEach(this::assertValidCreatedAt);
+    }
+
     // Helper methods
+    /**
+     * Assert the "honesty" as-of field: every searcher merges the envelope's
+     * createdAt into the result alongside its id, so a caller can tell how
+     * fresh a read is instead of rendering stale data silently.
+     */
+    private void assertValidCreatedAt(Stash result) {
+        Object createdAt = result.get("createdAt");
+        assertNotNull(createdAt, "Expected the search result to carry a createdAt field");
+
+        try {
+            assertNotNull(Instant.parse(createdAt.toString()));
+        } catch (DateTimeParseException e) {
+            fail("Expected createdAt \"" + createdAt + "\" to be an ISO-8601 instant");
+        }
+    }
+
     private Stash convertToStash(Map<String, String> row) {
         Stash stash = new Stash();
         for (Map.Entry<String, String> entry : row.entrySet()) {

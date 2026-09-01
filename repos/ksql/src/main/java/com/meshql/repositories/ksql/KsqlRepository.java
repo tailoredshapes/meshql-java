@@ -108,6 +108,7 @@ public class KsqlRepository implements Repository {
             String json = envelopeToJson(newEnvelope);
             producer.send(new ProducerRecord<>(topic, id, json)).get();
             producer.flush();
+            awaitMaterialized(List.of(id));
             return newEnvelope;
         } catch (Exception e) {
             logger.error("Error creating document: {}", e.getMessage(), e);
@@ -236,7 +237,43 @@ public class KsqlRepository implements Repository {
             throw new RuntimeException("Failed to create multiple documents", e);
         }
 
+        awaitMaterialized(created.stream().map(Envelope::id).collect(Collectors.toList()));
+
         return created;
+    }
+
+    /**
+     * Wait until the ksqlDB materialized table reflects rows already written to
+     * the topic.
+     *
+     * <p>A write lands in Kafka, and the table {@link #list} reads is a
+     * persistent query over that topic, so the table trails the write. Waiting
+     * here keeps the repository read-your-writes. Without it {@code list}
+     * returns whichever prefix of a write happened to materialize first: its
+     * own retry loop stops at the first non-empty answer, and a partial answer
+     * is non-empty.
+     */
+    private void awaitMaterialized(List<String> ids) {
+        Set<String> pending = new HashSet<>(ids);
+        String query = String.format("SELECT * FROM %s WHERE deleted = false;", tableName);
+
+        try {
+            for (int i = 0; i < POLL_RETRIES; i++) {
+                for (Map<String, Object> row : ksqlClient.executeQuery(query)) {
+                    pending.remove(getIdFromRow(row));
+                }
+                if (pending.isEmpty()) {
+                    return;
+                }
+                Thread.sleep(POLL_INTERVAL_MS);
+            }
+            logger.warn("ksqlDB table {} still misses {} of {} rows after waiting",
+                    tableName, pending.size(), ids.size());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            logger.error("Error waiting for ksqlDB materialization: {}", e.getMessage(), e);
+        }
     }
 
     @Override
