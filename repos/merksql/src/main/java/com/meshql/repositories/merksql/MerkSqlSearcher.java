@@ -77,14 +77,23 @@ public class MerkSqlSearcher implements Searcher {
         return expectedValue.equals(actualValue);
     }
 
+    /**
+     * The newest version of each id as of an instant, with the removed ones dropped.
+     *
+     * <p>The as-of cutoff is applied before the latest-version reduction and the
+     * {@code deleted} flag after it: a removed record's history still contains the
+     * versions that preceded the tombstone, and those versions are what an earlier
+     * instant should resolve to.
+     */
     private List<Envelope> getLatestVersions(long timestamp) {
         Instant timestampInstant = Instant.ofEpochMilli(timestamp + 1);
         List<Envelope> results = new ArrayList<>();
 
         for (List<Envelope> envelopes : db.values()) {
             envelopes.stream()
-                    .filter(e -> !e.deleted() && !e.createdAt().isAfter(timestampInstant))
+                    .filter(e -> !e.createdAt().isAfter(timestampInstant))
                     .max(Comparator.comparing(Envelope::createdAt))
+                    .filter(e -> !e.deleted())
                     .ifPresent(results::add);
         }
 

@@ -8,6 +8,8 @@ import com.meshql.core.Envelope;
 import com.meshql.core.NotAuthorizedException;
 import com.meshql.core.Operation;
 import com.meshql.core.Repository;
+import com.meshql.core.VersionRef;
+import com.meshql.core.Versions;
 import com.meshql.repositories.rdbms.Converters;
 import com.tailoredshapes.stash.Stash;
 import org.slf4j.Logger;
@@ -106,8 +108,8 @@ public class SQLiteRepository implements Repository {
         // The mark goes in with the payload: one statement, so authorization is
         // never a second write that can fail on its own.
         String query = String.format(
-            "INSERT INTO %s (id, payload, auth) " +
-            "VALUES (?, ?, ?);", table);
+            "INSERT INTO %s (id, payload, auth, deleted) " +
+            "VALUES (?, ?, ?, ?);", table);
 
         String id = stamped.id() != null ? stamped.id() : Generators.timeBasedGenerator().generate().toString();
 
@@ -116,6 +118,7 @@ public class SQLiteRepository implements Repository {
             pstmt.setString(1, id);
             pstmt.setString(2, objectMapper.writeValueAsString(stamped.payload()));
             pstmt.setString(3, Converters.writeAuth(stamped.auth()));
+            pstmt.setInt(4, stamped.deleted() ? 1 : 0);
 
             pstmt.executeUpdate();
 
@@ -187,14 +190,21 @@ public class SQLiteRepository implements Repository {
         return latestAt(id, at).filter(e -> allows(session, Operation.READ, e));
     }
 
-    /** The latest live version of an id at an instant, before anyone is asked about it. */
+    /**
+     * The latest live version of an id at an instant, before anyone is asked about it.
+     *
+     * <p>The as-of cutoff is applied before the latest-version reduction and the
+     * {@code deleted} flag after it. A removal appends a tombstone rather than
+     * rewriting the rows before it, so a {@code deleted = 0} predicate in the query
+     * would resolve to the version the tombstone buries and resurrect the record.
+     */
     private Optional<Envelope> latestAt(String id, Instant at) {
         long atMs = at != null ? at.toEpochMilli() : System.currentTimeMillis();
 
         String query = String.format(
             "SELECT * FROM %s " +
-            "WHERE id = ? AND deleted = 0 AND created_at <= ? " +
-            "ORDER BY created_at DESC LIMIT 1;", table);
+            "WHERE id = ? AND created_at <= ? " +
+            "ORDER BY created_at DESC, _id DESC LIMIT 1;", table);
 
         try (PreparedStatement pstmt = connection.prepareStatement(query)) {
             pstmt.setString(1, id);
@@ -202,13 +212,33 @@ public class SQLiteRepository implements Repository {
 
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    return Optional.of(rowToEnvelope(rs));
+                    Envelope latest = rowToEnvelope(rs);
+                    return latest.deleted() ? Optional.empty() : Optional.of(latest);
                 }
             }
 
             return Optional.empty();
         } catch (SQLException e) {
             throw new RuntimeException("Error reading document", e);
+        }
+    }
+
+    /** Every stored version of an id, live or buried, in no particular order. */
+    private List<Envelope> versionsOf(String id) {
+        String query = String.format("SELECT * FROM %s WHERE id = ?;", table);
+
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, id);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                List<Envelope> versions = new ArrayList<>();
+                while (rs.next()) {
+                    versions.add(rowToEnvelope(rs));
+                }
+                return versions;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error listing versions", e);
         }
     }
 
@@ -230,8 +260,8 @@ public class SQLiteRepository implements Repository {
 
         String query = String.format(
             "SELECT * FROM %s " +
-            "WHERE id IN (%s) AND deleted = 0 AND created_at <= ? " +
-            "ORDER BY created_at DESC;",
+            "WHERE id IN (%s) AND created_at <= ? " +
+            "ORDER BY created_at DESC, _id DESC;",
             table, placeholders);
 
         try (PreparedStatement pstmt = connection.prepareStatement(query)) {
@@ -251,8 +281,11 @@ public class SQLiteRepository implements Repository {
                     String id = rs.getString("id");
                     if (!seen.contains(id)) {
                         seen.add(id);
+                        // The first row for an id is its latest version. If that
+                        // version is the tombstone the record is gone, and the
+                        // versions behind it are not a fallback.
                         Envelope envelope = rowToEnvelope(rs);
-                        if (allows(session, Operation.READ, envelope)) {
+                        if (!envelope.deleted() && allows(session, Operation.READ, envelope)) {
                             envelopes.add(envelope);
                         }
                     }
@@ -265,23 +298,25 @@ public class SQLiteRepository implements Repository {
         }
     }
 
+    /**
+     * Bury a document under a tombstone, if the plugin lets this caller remove it.
+     *
+     * <p>A removal is a version, not an erasure. The rows that preceded it stay
+     * exactly as written, so their addresses keep resolving, and the tombstone
+     * keeps the mark of the record it buries: who may hear about the deletion is
+     * who could read the thing deleted.
+     */
     @Override
     public Boolean remove(String id, AuthSession session) {
-        boolean removable = latestAt(id, Instant.now())
-                .filter(e -> allows(session, Operation.REMOVE, e))
-                .isPresent();
-        if (!removable) {
+        Optional<Envelope> buried = latestAt(id, Instant.now())
+                .filter(e -> allows(session, Operation.REMOVE, e));
+        if (buried.isEmpty()) {
             return false;
         }
 
-        String query = String.format("UPDATE %s SET deleted = 1 WHERE id = ?", table);
-
-        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
-            pstmt.setString(1, id);
-            return pstmt.executeUpdate() > 0;
-        } catch (SQLException e) {
-            throw new RuntimeException("Error removing document", e);
-        }
+        Envelope living = buried.get();
+        insert(new Envelope(id, living.payload(), Instant.now(), true, living.auth()));
+        return true;
     }
 
     @Override
@@ -313,7 +348,7 @@ public class SQLiteRepository implements Repository {
     @Override
     public List<Envelope> list(AuthSession session) {
         String query = String.format(
-            "SELECT * FROM %s WHERE deleted = 0 ORDER BY created_at DESC;", table);
+            "SELECT * FROM %s ORDER BY created_at DESC, _id DESC;", table);
 
         try (PreparedStatement pstmt = connection.prepareStatement(query);
              ResultSet rs = pstmt.executeQuery()) {
@@ -325,8 +360,9 @@ public class SQLiteRepository implements Repository {
                 String id = rs.getString("id");
                 if (!seen.contains(id)) {
                     seen.add(id);
+                    // Resolve first, then drop the removed - see readMany.
                     Envelope envelope = rowToEnvelope(rs);
-                    if (allows(session, Operation.READ, envelope)) {
+                    if (!envelope.deleted() && allows(session, Operation.READ, envelope)) {
                         envelopes.add(envelope);
                     }
                 }
@@ -336,5 +372,15 @@ public class SQLiteRepository implements Repository {
         } catch (SQLException e) {
             throw new RuntimeException("Error listing documents", e);
         }
+    }
+
+    @Override
+    public List<VersionRef> listVersions(String id, AuthSession session) {
+        return Versions.listing(versionsOf(id), session);
+    }
+
+    @Override
+    public Optional<Envelope> readVersion(String id, String token, AuthSession session) {
+        return Versions.resolve(versionsOf(id), token, session);
     }
 }

@@ -5,6 +5,8 @@ import com.meshql.core.Envelope;
 import com.meshql.core.NotAuthorizedException;
 import com.meshql.core.Operation;
 import com.meshql.core.Repository;
+import com.meshql.core.VersionRef;
+import com.meshql.core.Versions;
 import com.tailoredshapes.stash.Stash;
 
 import java.time.Instant;
@@ -85,7 +87,14 @@ public class InMemoryRepository implements Repository {
         return latestAt(id, createdAt).filter(e -> allows(session, Operation.READ, e));
     }
 
-    /** The latest live version of an id at an instant, before anyone is asked about it. */
+    /**
+     * The latest live version of an id at an instant, before anyone is asked about it.
+     *
+     * <p>The as-of cutoff is applied before the latest-version reduction and the
+     * {@code deleted} flag after it. A removal appends a tombstone rather than
+     * rewriting what came before, so filtering the tombstone out first would
+     * resolve to the version it buries and resurrect the record.
+     */
     private Optional<Envelope> latestAt(String id, Instant createdAt) {
         List<Envelope> envelopes = db.get(id);
         if (envelopes == null || envelopes.isEmpty()) {
@@ -97,8 +106,9 @@ public class InMemoryRepository implements Repository {
         Instant adjustedTimestamp = createdAt.plusMillis(1);
 
         return envelopes.stream()
-                .filter(e -> !e.deleted() && !e.createdAt().isAfter(adjustedTimestamp))
-                .max(Comparator.comparing(Envelope::createdAt));
+                .filter(e -> !e.createdAt().isAfter(adjustedTimestamp))
+                .max(Comparator.comparing(Envelope::createdAt))
+                .filter(e -> !e.deleted());
     }
 
     @Override
@@ -116,14 +126,15 @@ public class InMemoryRepository implements Repository {
         Set<String> seen = new HashSet<>();
 
         for (List<Envelope> envelopeList : db.values()) {
-            List<Envelope> nonDeletedEnvelopes = envelopeList.stream()
-                    .filter(e -> !e.deleted())
-                    .collect(Collectors.toList());
+            // Resolve first, then drop the removed: a tombstone is the latest
+            // version of a removed id, and skipping it here would list the
+            // version it buries.
+            Optional<Envelope> latest = envelopeList.stream()
+                    .max(Comparator.comparing(Envelope::createdAt))
+                    .filter(e -> !e.deleted());
 
-            if (!nonDeletedEnvelopes.isEmpty()) {
-                nonDeletedEnvelopes.sort((a, b) -> b.createdAt().compareTo(a.createdAt()));
-                Envelope latestEnvelope = nonDeletedEnvelopes.get(0);
-
+            if (latest.isPresent()) {
+                Envelope latestEnvelope = latest.get();
                 if (!seen.contains(latestEnvelope.id()) && allows(session, Operation.READ, latestEnvelope)) {
                     seen.add(latestEnvelope.id());
                     result.add(latestEnvelope);
@@ -134,27 +145,32 @@ public class InMemoryRepository implements Repository {
         return result;
     }
 
+    /**
+     * Bury a document under a tombstone, if the plugin lets this caller remove it.
+     *
+     * <p>A removal is a version, not an erasure: the history that preceded it stays
+     * exactly as it was written, so its addresses keep resolving, and the tombstone
+     * keeps the mark of the record it buries so who may hear about the deletion is
+     * who could read the thing deleted.
+     */
     @Override
     public Boolean remove(String id, AuthSession session) {
-        List<Envelope> envelopes = db.get(id);
-        if (envelopes == null || envelopes.isEmpty()) {
-            return false;
-        }
-
         // A caller can only remove what the plugin lets it remove.
-        boolean removable = latestAt(id, Instant.now())
-                .filter(e -> allows(session, Operation.REMOVE, e))
-                .isPresent();
-        if (!removable) {
+        Optional<Envelope> buried = latestAt(id, Instant.now())
+                .filter(e -> allows(session, Operation.REMOVE, e));
+        if (buried.isEmpty()) {
             return false;
         }
 
-        // Mark all versions as deleted
-        List<Envelope> updatedEnvelopes = envelopes.stream()
-                .map(e -> new Envelope(e.id(), e.payload(), e.createdAt(), true, e.auth()))
-                .collect(Collectors.toList());
+        Envelope living = buried.get();
+        Envelope tombstone =
+                new Envelope(id, living.payload(), Instant.now(), true, living.auth());
 
-        db.put(id, updatedEnvelopes);
+        db.compute(id, (key, existing) -> {
+            List<Envelope> updated = existing != null ? existing : new ArrayList<>();
+            updated.add(tombstone);
+            return updated;
+        });
         return true;
     }
 
@@ -165,5 +181,21 @@ public class InMemoryRepository implements Repository {
             results.put(id, remove(id, session));
         }
         return results;
+    }
+
+    @Override
+    public List<VersionRef> listVersions(String id, AuthSession session) {
+        return Versions.listing(versionsOf(id), session);
+    }
+
+    @Override
+    public Optional<Envelope> readVersion(String id, String token, AuthSession session) {
+        return Versions.resolve(versionsOf(id), token, session);
+    }
+
+    /** Every stored version of an id, live or buried, in no particular order. */
+    private List<Envelope> versionsOf(String id) {
+        List<Envelope> envelopes = db.get(id);
+        return envelopes == null ? List.of() : new ArrayList<>(envelopes);
     }
 }

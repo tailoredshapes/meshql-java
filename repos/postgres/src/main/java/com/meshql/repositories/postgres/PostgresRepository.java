@@ -8,6 +8,8 @@ import com.meshql.core.Envelope;
 import com.meshql.core.NotAuthorizedException;
 import com.meshql.core.Operation;
 import com.meshql.core.Repository;
+import com.meshql.core.VersionRef;
+import com.meshql.core.Versions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +48,7 @@ public class PostgresRepository implements Repository {
             Template read,
             Template readMany,
             Template remove,
-            Template removeMany,
+            Template versions,
             Template list
     ) { }
 
@@ -85,7 +87,7 @@ public class PostgresRepository implements Repository {
                 loadTemplate("sql/read.sql"),
                 loadTemplate("sql/readMany.sql"),
                 loadTemplate("sql/remove.sql"),
-                loadTemplate("sql/removeMany.sql"),
+                loadTemplate("sql/versions.sql"),
                 loadTemplate("sql/list.sql")
             );
         } catch (Exception e) {
@@ -206,7 +208,14 @@ public class PostgresRepository implements Repository {
         return latestAt(id, createdAt).filter(e -> allows(session, Operation.READ, e));
     }
 
-    /** The latest live version of an id at an instant, before anyone is asked about it. */
+    /**
+     * The latest live version of an id at an instant, before anyone is asked about it.
+     *
+     * <p>The as-of cutoff is applied before the latest-version reduction and the
+     * {@code deleted} flag after it. A removal appends a tombstone rather than
+     * rewriting the rows before it, so a {@code deleted IS FALSE} predicate in the
+     * query would resolve to the version the tombstone buries.
+     */
     private Optional<Envelope> latestAt(String id, Instant createdAt) {
         Instant at = createdAt == null ? Instant.now() : createdAt;
 
@@ -220,7 +229,11 @@ public class PostgresRepository implements Repository {
                 stmt.setTimestamp(2, instantToTimestamp(at));
 
                 try (ResultSet rs = stmt.executeQuery()) {
-                    return rs.next() ? Optional.of(resultSetToEnvelope(rs)) : Optional.empty();
+                    if (!rs.next()) {
+                        return Optional.empty();
+                    }
+                    Envelope latest = resultSetToEnvelope(rs);
+                    return latest.deleted() ? Optional.empty() : Optional.of(latest);
                 }
             }
         } catch (SQLException e) {
@@ -266,15 +279,23 @@ public class PostgresRepository implements Repository {
         }
     }
 
+    /**
+     * Bury a document under a tombstone, if the plugin lets this caller remove it.
+     *
+     * <p>A removal is a version, not an erasure. The rows that preceded it stay
+     * exactly as written, so their addresses keep resolving, and the tombstone
+     * keeps the mark of the record it buries: who may hear about the deletion is
+     * who could read the thing deleted.
+     */
     @Override
     public Boolean remove(String id, AuthSession session) {
-        boolean removable = latestAt(id, Instant.now())
-                .filter(e -> allows(session, Operation.REMOVE, e))
-                .isPresent();
-        if (!removable) {
+        Optional<Envelope> buried = latestAt(id, Instant.now())
+                .filter(e -> allows(session, Operation.REMOVE, e));
+        if (buried.isEmpty()) {
             return false;
         }
 
+        Envelope living = buried.get();
         try {
             String sql = renderSql(sqlTemplates.remove());
 
@@ -282,7 +303,11 @@ public class PostgresRepository implements Repository {
                  PreparedStatement stmt = conn.prepareStatement(sql)) {
 
                 stmt.setString(1, id);
-                return stmt.executeUpdate() > 0;
+                stmt.setString(2, living.payload().toJSONString());
+                stmt.setString(3, writeAuth(living.auth()));
+                try (ResultSet rs = stmt.executeQuery()) {
+                    return rs.next();
+                }
             }
         } catch (SQLException e) {
             logger.error("Error removing document: {}", e.getMessage(), e);
@@ -290,6 +315,43 @@ public class PostgresRepository implements Repository {
         } catch (IOException e) {
             logger.error("Failed to render SQL template", e);
             return false;
+        }
+    }
+
+    @Override
+    public List<VersionRef> listVersions(String id, AuthSession session) {
+        return Versions.listing(versionsOf(id), session);
+    }
+
+    @Override
+    public Optional<Envelope> readVersion(String id, String token, AuthSession session) {
+        return Versions.resolve(versionsOf(id), token, session);
+    }
+
+    /** Every stored version of an id, live or buried, in no particular order. */
+    private List<Envelope> versionsOf(String id) {
+        try {
+            String sql = renderSql(sqlTemplates.versions());
+
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+                stmt.setString(1, id);
+
+                try (ResultSet rs = stmt.executeQuery()) {
+                    List<Envelope> versions = new ArrayList<>();
+                    while (rs.next()) {
+                        versions.add(resultSetToEnvelope(rs));
+                    }
+                    return versions;
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Error listing versions: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        } catch (IOException e) {
+            logger.error("Failed to render SQL template", e);
+            return Collections.emptyList();
         }
     }
 

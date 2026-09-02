@@ -93,6 +93,12 @@ public class InMemorySearcher implements Searcher {
 
     /**
      * Get the latest non-deleted version of each envelope before the given timestamp.
+     *
+     * <p>The as-of cutoff is applied before the latest-version reduction and the
+     * {@code deleted} flag after it: a removed record's history still contains the
+     * versions that preceded the tombstone, and those versions are what an earlier
+     * instant should resolve to. Dropping tombstones first would resurrect them
+     * at the present instant too.
      */
     private List<Envelope> getLatestVersions(long timestamp) {
         // Add 1ms buffer to account for nanosecond precision in Instant.now()
@@ -101,10 +107,10 @@ public class InMemorySearcher implements Searcher {
         List<Envelope> results = new ArrayList<>();
 
         for (List<Envelope> envelopes : db.values()) {
-            // Find the latest envelope that is not deleted and created before timestamp
             envelopes.stream()
-                    .filter(e -> !e.deleted() && !e.createdAt().isAfter(timestampInstant))
+                    .filter(e -> !e.createdAt().isAfter(timestampInstant))
                     .max(Comparator.comparing(Envelope::createdAt))
+                    .filter(e -> !e.deleted())
                     .ifPresent(results::add);
         }
 

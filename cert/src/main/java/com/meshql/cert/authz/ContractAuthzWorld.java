@@ -78,6 +78,12 @@ public class ContractAuthzWorld {
     /** The most recent temporal read, kept so a later Then step can assert on it. */
     public JsonNode temporalResult;
 
+    /**
+     * The entries of the most recent version listing, so a later Then step can
+     * assert on their order, their URLs, or what the last one says.
+     */
+    public List<JsonNode> versions = new ArrayList<>();
+
     /** Status of the most recent delete. */
     public Integer deleteStatus;
 }

@@ -50,6 +50,29 @@ public class MongoSearcher implements Searcher {
     }
 
     /**
+     * The newest matching version of each id, as of the query's cutoff, with the
+     * removed ones dropped.
+     *
+     * <p>The as-of filter has to be applied before the latest-version reduction and
+     * the {@code deleted} flag after it: a removal appends a tombstone rather than
+     * rewriting the documents before it, so matching on {@code deleted: false} up
+     * front would promote the version the tombstone buries and leave a removed
+     * record readable through GraphQL.
+     */
+    private static List<Bson> latestVersions(Document query) {
+        return new ArrayList<>(Arrays.asList(
+                Aggregates.match(query),
+                Aggregates.sort(Sorts.descending("createdAt")),
+                new Document("$group",
+                        new Document("_id", "$id")
+                                .append("doc", new Document("$first", "$$ROOT"))),
+                new Document("$replaceRoot",
+                        new Document("newRoot", "$doc")),
+                Aggregates.match(Filters.eq("deleted", false)),
+                Aggregates.sort(Sorts.descending("createdAt"))));
+    }
+
+    /**
      * Process a query template with parameters.
      *
      * @param parameters    Parameters to apply to the template
@@ -79,17 +102,12 @@ public class MongoSearcher implements Searcher {
 
         // Add timestamp filter
         query.append("createdAt", new Document("$lt", new Date(timestamp)));
-        // Exclude tombstones. Every other Searcher does this (the RDBMS templates carry
-        // "AND deleted = 0"); without it a removed record stays readable through GraphQL.
-        query.append("deleted", false);
 
         logger.info("MongoSearcher.find() - Template: {}, Args: {}, Timestamp: {}, Final Query: {}",
                 queryTemplate, args, timestamp, query.toJson());
 
         try {
-            List<Document> results = collection.find(query)
-                    .sort(Sorts.descending("createdAt"))
-                    .into(new ArrayList<>());
+            List<Document> results = collection.aggregate(latestVersions(query)).into(new ArrayList<>());
 
             logger.info("MongoSearcher.find() - Found {} results", results.size());
 
@@ -132,29 +150,14 @@ public class MongoSearcher implements Searcher {
 
         // Add timestamp filter
         query.append("createdAt", new Document("$lt", new Date(timestamp)));
-        // Exclude tombstones - see find() above. remove() marks every version of an id
-        // deleted, so filtering in the match stage cannot resurrect an older version.
-        query.append("deleted", false);
 
         logger.info("MongoSearcher.findAll() - Template: {}, Args: {}, Timestamp: {}, Final Query: {}",
                 queryTemplate, args, timestamp, query.toJson());
 
         try {
-            // Create a custom aggregation pipeline using Document objects directly
-            List<Bson> pipeline = new ArrayList<>(Arrays.asList(
-                    Aggregates.match(query),
-                    Aggregates.sort(Sorts.descending("createdAt")),
-                    // Use Document directly for the group stage
-                    new Document("$group",
-                            new Document("_id", "$id")
-                                    .append("doc", new Document("$first", "$$ROOT"))),
-                    // Use Document directly for the replaceRoot stage
-                    new Document("$replaceRoot",
-                            new Document("newRoot", "$doc"))));
-
             // The limit is deliberately not in the pipeline: it has to truncate the
             // authorized documents, not the fetched ones.
-            List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
+            List<Document> results = collection.aggregate(latestVersions(query)).into(new ArrayList<>());
 
             logger.info("MongoSearcher.findAll() - Found {} results before authorization", results.size());
 

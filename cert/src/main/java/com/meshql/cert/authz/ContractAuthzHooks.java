@@ -99,6 +99,7 @@ public abstract class ContractAuthzHooks {
         world.ids.clear();
         world.stamps.clear();
         world.names.clear();
+        world.versions.clear();
         world.temporalResult = null;
         world.deleteStatus = null;
 

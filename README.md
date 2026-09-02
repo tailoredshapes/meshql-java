@@ -26,9 +26,11 @@ the JVM.
 
 ### Where this implementation diverges
 
-- **No `/<id>/versions` endpoint.** Rust exposes the version history of a
-  document over REST; Java does not yet. Nothing in the contract certifies it,
-  which is why the gap went unnoticed.
+- **No SSE change feed and no MCP server.** Rust derives both from the
+  configuration; Java does neither yet. Nothing in the contract certifies
+  either, which is why the gaps went unnoticed — the `/<id>/versions` endpoint
+  was on this list until `versions.feature` made it a claim about all three
+  implementations.
 
 ## Examples
 

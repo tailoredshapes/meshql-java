@@ -5,6 +5,8 @@ import com.meshql.core.Envelope;
 import com.meshql.core.NotAuthorizedException;
 import com.meshql.core.Operation;
 import com.meshql.core.Repository;
+import com.meshql.core.VersionRef;
+import com.meshql.core.Versions;
 import com.tailoredshapes.stash.Stash;
 
 import java.time.Instant;
@@ -70,7 +72,14 @@ public class MerkSqlRepository implements Repository {
         return latestAt(id, createdAt).filter(e -> allows(session, Operation.READ, e));
     }
 
-    /** The latest live version of an id at an instant, before anyone is asked about it. */
+    /**
+     * The latest live version of an id at an instant, before anyone is asked about it.
+     *
+     * <p>The as-of cutoff is applied before the latest-version reduction and the
+     * {@code deleted} flag after it. A removal appends a tombstone rather than
+     * rewriting what came before, so filtering the tombstone out first would
+     * resolve to the version it buries and resurrect the record.
+     */
     private Optional<Envelope> latestAt(String id, Instant createdAt) {
         List<Envelope> envelopes = store.getDb().get(id);
         if (envelopes == null || envelopes.isEmpty()) {
@@ -80,8 +89,15 @@ public class MerkSqlRepository implements Repository {
         Instant adjustedTimestamp = createdAt.plusMillis(1);
 
         return envelopes.stream()
-                .filter(e -> !e.deleted() && !e.createdAt().isAfter(adjustedTimestamp))
-                .max(Comparator.comparing(Envelope::createdAt));
+                .filter(e -> !e.createdAt().isAfter(adjustedTimestamp))
+                .max(Comparator.comparing(Envelope::createdAt))
+                .filter(e -> !e.deleted());
+    }
+
+    /** Every stored version of an id, live or buried, in no particular order. */
+    private List<Envelope> versionsOf(String id) {
+        List<Envelope> envelopes = store.getDb().get(id);
+        return envelopes == null ? List.of() : new ArrayList<>(envelopes);
     }
 
     @Override
@@ -99,14 +115,15 @@ public class MerkSqlRepository implements Repository {
         Set<String> seen = new HashSet<>();
 
         for (List<Envelope> envelopeList : store.getDb().values()) {
-            List<Envelope> nonDeleted = envelopeList.stream()
-                    .filter(e -> !e.deleted())
-                    .collect(Collectors.toList());
+            // Resolve first, then drop the removed: a tombstone is the latest
+            // version of a removed id, and skipping it here would list the
+            // version it buries.
+            Optional<Envelope> newest = envelopeList.stream()
+                    .max(Comparator.comparing(Envelope::createdAt))
+                    .filter(e -> !e.deleted());
 
-            if (!nonDeleted.isEmpty()) {
-                nonDeleted.sort((a, b) -> b.createdAt().compareTo(a.createdAt()));
-                Envelope latest = nonDeleted.get(0);
-
+            if (newest.isPresent()) {
+                Envelope latest = newest.get();
                 if (!seen.contains(latest.id()) && allows(session, Operation.READ, latest)) {
                     seen.add(latest.id());
                     result.add(latest);
@@ -117,7 +134,12 @@ public class MerkSqlRepository implements Repository {
         return result;
     }
 
-    /** A caller can only remove what the plugin lets it remove. */
+    /**
+     * Bury a document under a tombstone, if the plugin lets this caller remove it.
+     *
+     * <p>A removal is a version, not an erasure: the history that preceded it stays
+     * exactly as it was written, so its addresses keep resolving.
+     */
     @Override
     public Boolean remove(String id, AuthSession session) {
         boolean removable = latestAt(id, Instant.now())
@@ -136,5 +158,15 @@ public class MerkSqlRepository implements Repository {
             results.put(id, remove(id, session));
         }
         return results;
+    }
+
+    @Override
+    public List<VersionRef> listVersions(String id, AuthSession session) {
+        return Versions.listing(versionsOf(id), session);
+    }
+
+    @Override
+    public Optional<Envelope> readVersion(String id, String token, AuthSession session) {
+        return Versions.resolve(versionsOf(id), token, session);
     }
 }

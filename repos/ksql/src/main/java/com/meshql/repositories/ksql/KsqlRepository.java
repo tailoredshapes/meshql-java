@@ -6,6 +6,8 @@ import com.meshql.core.Envelope;
 import com.meshql.core.NotAuthorizedException;
 import com.meshql.core.Operation;
 import com.meshql.core.Repository;
+import com.meshql.core.VersionRef;
+import com.meshql.core.Versions;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -382,6 +384,16 @@ public class KsqlRepository implements Repository {
             logger.debug("Read {} versions for id {} from topic {} in {} polls", versions.size(), id, topic, pollCount);
         }
         return versions;
+    }
+
+    @Override
+    public List<VersionRef> listVersions(String id, AuthSession session) {
+        return Versions.listing(readAllVersionsFromKafka(id), session);
+    }
+
+    @Override
+    public Optional<Envelope> readVersion(String id, String token, AuthSession session) {
+        return Versions.resolve(readAllVersionsFromKafka(id), token, session);
     }
 
     /**

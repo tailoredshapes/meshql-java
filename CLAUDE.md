@@ -224,9 +224,22 @@ Restlette automatically provides:
 | `DELETE /{id}` | Delete document |
 | `POST /bulk` | Batch create |
 | `GET /bulk?ids=1,2,3` | Batch read |
+| `GET /{id}/versions` | Every version of a document, oldest first |
+| `GET /{id}/versions/{token}` | One version, by its address |
 | `GET /api-docs` | Swagger UI |
 
 **Note:** REST responses return only the payload — the `Envelope` (with internal ID, timestamps, auth tokens) is deliberately not exposed. The URL is the canonical resource identifier per REST principles. Use GraphQL to discover IDs.
+
+**Version history:** `GET /{id}/versions` answers with
+`{"id": ..., "versions": [...]}`, oldest first. A readable entry carries `url`,
+`created_at` and `deleted`; one the caller may not read carries `created_at`,
+`deleted` and `unauthorized: true`, and no `url` key at all — omitting the entry
+would make the history look continuous when it is not. A version's address is a
+SHA-256 of what identifies it, so the same version addresses identically on
+every adapter and a version URL survives a migration between stores; see
+`com.meshql.core.Versions`. A delete appends a tombstone rather than rewriting
+what came before, which is why every read resolves the newest version first and
+checks `deleted` after.
 
 **Honesty headers:** `create`/`read`/`update` responses carry `X-Meshql-Created-At` (ISO-8601 instant) and `X-Meshql-Deleted` (`true`/`false`) response headers, pulled from the Envelope without widening the JSON body. Use these to show an as-of / "pending" state in the FE instead of silently rendering stale data. Not present on `list` (one header can't represent many envelopes) or `delete` (`Repository.remove` returns only a `Boolean`, no Envelope to read a timestamp from).
 

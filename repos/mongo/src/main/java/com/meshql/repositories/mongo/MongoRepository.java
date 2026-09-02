@@ -6,6 +6,8 @@ import com.meshql.core.Envelope;
 import com.meshql.core.NotAuthorizedException;
 import com.meshql.core.Operation;
 import com.meshql.core.Repository;
+import com.meshql.core.VersionRef;
+import com.meshql.core.Versions;
 import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.*;
@@ -109,14 +111,20 @@ public class MongoRepository implements Repository {
         return latestAt(id, createdAt).filter(e -> allows(session, Operation.READ, e));
     }
 
-    /** The latest live version of an id at an instant, before anyone is asked about it. */
+    /**
+     * The latest live version of an id at an instant, before anyone is asked about it.
+     *
+     * <p>The as-of cutoff is applied before the latest-version reduction and the
+     * {@code deleted} flag after it. A removal appends a tombstone rather than
+     * rewriting the documents before it, so matching on {@code deleted: false}
+     * would resolve to the version the tombstone buries.
+     */
     private Optional<Envelope> latestAt(String id, Instant createdAt) {
         Instant at = createdAt == null ? Instant.now() : createdAt;
 
         Bson filter = Filters.and(
                 Filters.eq("id", id),
-                Filters.lte("createdAt", Date.from(at)),
-                Filters.eq("deleted", false));
+                Filters.lte("createdAt", Date.from(at)));
 
         try {
             List<Document> results = collection.find(filter)
@@ -127,25 +135,43 @@ public class MongoRepository implements Repository {
                 return Optional.empty();
             }
 
-            return Optional.ofNullable(documentToEnvelope(results.get(0)));
+            Envelope latest = documentToEnvelope(results.get(0));
+            return latest == null || latest.deleted() ? Optional.empty() : Optional.of(latest);
         } catch (Exception e) {
             logger.error("Error reading document: {}", e.getMessage(), e);
             return Optional.empty();
         }
     }
 
+    /** Every stored version of an id, live or buried, in no particular order. */
+    private List<Envelope> versionsOf(String id) {
+        try {
+            return collection.find(Filters.eq("id", id))
+                    .into(new ArrayList<>())
+                    .stream()
+                    .map(Converters::documentToEnvelope)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.error("Error listing versions: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }
+
     @Override
     public List<Envelope> readMany(List<String> ids, AuthSession session) {
-        Bson match = Filters.and(
-                Filters.in("id", ids),
-                Filters.eq("deleted", false));
+        Bson match = Filters.in("id", ids);
 
         try {
+            // Group first, then drop the removed. A tombstone is the newest
+            // version of a removed id, so excluding it in the match stage would
+            // promote the version it buries.
             List<Document> results = collection.aggregate(UnderBar.list(
                     Aggregates.match(match),
                     Aggregates.sort(Sorts.descending("createdAt")),
                     Aggregates.group("$id", new BsonField("doc",  new Document("$first", "$$ROOT"))),
-                    Aggregates.replaceRoot("$doc"))).into(new ArrayList<>());
+                    Aggregates.replaceRoot("$doc"),
+                    Aggregates.match(Filters.eq("deleted", false)))).into(new ArrayList<>());
 
             return results.stream()
                     .map(Converters::documentToEnvelope)
@@ -159,9 +185,14 @@ public class MongoRepository implements Repository {
     }
 
     /**
-     * Mark a document deleted, if the plugin lets this caller remove it.
+     * Bury a document under a tombstone, if the plugin lets this caller remove it.
      *
-     * <p>The return value reports what the update did. It used to report
+     * <p>A removal is a version, not an erasure. The documents that preceded it
+     * stay exactly as written, so their addresses keep resolving, and the tombstone
+     * keeps the mark of the record it buries: who may hear about the deletion is
+     * who could read the thing deleted.
+     *
+     * <p>The return value reports what the write did. It used to report
      * {@code true} unconditionally, so a caller deleting a document it was not
      * entitled to got HTTP 200 and a {@code "status": "deleted"} body while the
      * document sat untouched. The data was safe; the answer was not.
@@ -169,14 +200,18 @@ public class MongoRepository implements Repository {
     @Override
     public Boolean remove(String id, AuthSession session) {
         try {
-            boolean removable = latestAt(id, Instant.now())
-                    .filter(e -> allows(session, Operation.REMOVE, e))
-                    .isPresent();
-            if (!removable) {
+            Optional<Envelope> buried = latestAt(id, Instant.now())
+                    .filter(e -> allows(session, Operation.REMOVE, e));
+            if (buried.isEmpty()) {
                 return false;
             }
-            return collection.updateMany(Filters.eq("id", id), Updates.set("deleted", true))
-                    .getModifiedCount() > 0;
+
+            Envelope living = buried.get();
+            Envelope tombstone =
+                    new Envelope(id, living.payload(), Instant.now(), true, living.auth());
+            collection.withWriteConcern(WriteConcern.MAJORITY)
+                    .insertOne(envelopeToDocument(tombstone));
+            return true;
         } catch (Exception e) {
             logger.error("Error removing document: {}", e.getMessage(), e);
             return false;
@@ -197,14 +232,13 @@ public class MongoRepository implements Repository {
 
     @Override
     public List<Envelope> list(AuthSession session) {
-        Bson match = Filters.eq("deleted", false);
-
         try {
+            // Group first, then drop the removed - see readMany.
             List<Document> results = collection.aggregate(UnderBar.list(
-                    Aggregates.match(match),
                     Aggregates.sort(Sorts.descending("createdAt")),
                     Aggregates.group("$id", new BsonField("doc", new Document("$first", "$$ROOT"))),
-                    Aggregates.replaceRoot("$doc"))).into(new ArrayList<>());
+                    Aggregates.replaceRoot("$doc"),
+                    Aggregates.match(Filters.eq("deleted", false)))).into(new ArrayList<>());
 
             return results.stream()
                     .map(Converters::documentToEnvelope)
@@ -215,5 +249,15 @@ public class MongoRepository implements Repository {
             logger.error("Error listing documents: {}", e.getMessage(), e);
             return Collections.emptyList();
         }
+    }
+
+    @Override
+    public List<VersionRef> listVersions(String id, AuthSession session) {
+        return Versions.listing(versionsOf(id), session);
+    }
+
+    @Override
+    public Optional<Envelope> readVersion(String id, String token, AuthSession session) {
+        return Versions.resolve(versionsOf(id), token, session);
     }
 }

@@ -49,7 +49,12 @@ public class MerkSqlStore {
     }
 
     /**
-     * Mark all versions of an ID as deleted in both broker and in-memory index.
+     * Bury an id under a tombstone, in both the broker and the in-memory index.
+     *
+     * <p>A removal is a version, not an erasure. The versions that preceded it stay
+     * exactly as written - it used to rewrite every one of them with the deleted
+     * flag set, which changed their content and so changed their addresses - and
+     * the tombstone keeps the mark of the record it buries.
      */
     public boolean markDeleted(String id) {
         List<Envelope> envelopes = db.get(id);
@@ -57,19 +62,10 @@ public class MerkSqlStore {
             return false;
         }
 
-        List<Envelope> updated = new ArrayList<>();
-        for (Envelope e : envelopes) {
-            Envelope deleted = new Envelope(e.id(), e.payload(), e.createdAt(), true, e.auth());
-            updated.add(deleted);
-        }
-        db.put(id, updated);
-
-        // Produce a deletion marker to the broker
-        Envelope latest = envelopes.get(envelopes.size() - 1);
-        Envelope tombstone = new Envelope(id, latest.payload(), Instant.now(), true, latest.auth());
-        String json = envelopeToJson(tombstone);
-        MerkSqlNative.produce(handle, topic, id, json);
-
+        Envelope buried = envelopes.stream()
+                .max(Comparator.comparing(Envelope::createdAt))
+                .orElseThrow();
+        produce(new Envelope(id, buried.payload(), Instant.now(), true, buried.auth()));
         return true;
     }
 

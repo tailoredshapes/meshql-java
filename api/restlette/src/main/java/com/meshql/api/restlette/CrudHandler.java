@@ -8,6 +8,7 @@ import com.meshql.core.Envelope;
 import com.meshql.core.NotAuthorizedException;
 import com.meshql.core.Repository;
 import com.meshql.core.Validator;
+import com.meshql.core.VersionRef;
 import com.tailoredshapes.stash.Stash;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -200,6 +201,77 @@ public class CrudHandler {
             logger.error("Failed to bulk create resources", e);
             sendJsonError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
                 "Failed to bulk create resources");
+        }
+    }
+
+    /**
+     * Every version of one document, oldest first.
+     *
+     * <p>Each entry carries the URL that addresses that version, so a caller
+     * follows a link rather than assembling one. A version the caller may not read
+     * still appears, carrying when it happened and whether it was a deletion and
+     * saying it is unauthorized - no URL at all, rather than a null one. Omitting
+     * it would make the history look continuous when it is not.
+     *
+     * @param basePath the path this restlette is mounted at, which is what makes
+     *                 the URLs in the response followable
+     */
+    public void listVersions(HttpServletRequest request, HttpServletResponse response,
+                             String basePath, String id) throws IOException {
+        try {
+            List<VersionRef> versions = repository.listVersions(id, sessionFor(request));
+
+            List<Map<String, Object>> entries = new ArrayList<>();
+            for (VersionRef version : versions) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                if (version.authorized()) {
+                    entry.put("url", basePath + "/" + id + "/versions/" + version.token());
+                }
+                entry.put("created_at", DateTimeFormatter.ISO_INSTANT.format(version.createdAt()));
+                entry.put("deleted", version.deleted());
+                if (!version.authorized()) {
+                    entry.put("unauthorized", true);
+                }
+                entries.add(entry);
+            }
+
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("id", id);
+            body.put("versions", entries);
+            sendJsonResponse(response, HttpServletResponse.SC_OK, body);
+        } catch (Exception e) {
+            logger.error("Failed to list versions", e);
+            sendJsonError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                "Failed to list versions");
+        }
+    }
+
+    /**
+     * One version of a document, in the same shape as reading the document itself.
+     *
+     * <p>An unknown token is a 404. A version the caller cannot read is a 403, not
+     * a 404 - the listing already told them it exists, and pretending otherwise
+     * would contradict the answer they were just given.
+     */
+    public void readVersion(HttpServletRequest request, HttpServletResponse response,
+                            String id, String token) throws IOException {
+        try {
+            Optional<Envelope> envelope = repository.readVersion(id, token, sessionFor(request));
+
+            if (envelope.isEmpty()) {
+                sendJsonError(response, HttpServletResponse.SC_NOT_FOUND, "No such version");
+                return;
+            }
+
+            setHonestyHeaders(response, envelope.get());
+            sendJsonResponse(response, HttpServletResponse.SC_OK, envelope.get().payload());
+        } catch (NotAuthorizedException e) {
+            sendJsonError(response, HttpServletResponse.SC_FORBIDDEN,
+                "Not authorized to read this version");
+        } catch (Exception e) {
+            logger.error("Failed to read version", e);
+            sendJsonError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                "Failed to read version");
         }
     }
 

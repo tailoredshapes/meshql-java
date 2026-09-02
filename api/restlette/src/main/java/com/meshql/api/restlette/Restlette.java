@@ -28,6 +28,12 @@ public class Restlette extends HttpServlet {
     private final SwaggerUIHandler swaggerUIHandler;
     private final String openAPIJson;
     private final String apiPath;
+    /**
+     * The mount path with any trailing slash removed, so a version URL reads
+     * {@code /widget/api/<id>/versions/<token>} whichever way the path was
+     * configured.
+     */
+    private final String basePath;
 
     static {
         objectMapper.registerModule(new JavaTimeModule());
@@ -35,6 +41,9 @@ public class Restlette extends HttpServlet {
 
     public Restlette(RestletteConfig rc, Map<String, Plugin> storageFactory, Auth auth, Validator validator) {
         this.apiPath = rc.path();
+        this.basePath = apiPath.endsWith("/")
+                ? apiPath.substring(0, apiPath.length() - 1)
+                : apiPath;
         var port = rc.port();
 
         Plugin plugin = storageFactory.get(rc.storage().type);
@@ -84,6 +93,28 @@ public class Restlette extends HttpServlet {
                     crudHandler.create(request, response);
                 } else if ("GET".equals(method)) {
                     crudHandler.list(request, response);
+                } else {
+                    response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+                }
+                return;
+            }
+
+            // Every version of a document, and one version of it. Matched before
+            // the plain /{id} routes, because "/{id}/versions" is also a path
+            // starting with a slash and would otherwise be read as an id.
+            String[] segments = pathInfo.substring(1).split("/", -1);
+            if (segments.length == 3 && "versions".equals(segments[1]) && !segments[2].isEmpty()) {
+                if ("GET".equals(method)) {
+                    crudHandler.readVersion(request, response, segments[0], segments[2]);
+                } else {
+                    response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+                }
+                return;
+            }
+
+            if (segments.length == 2 && "versions".equals(segments[1])) {
+                if ("GET".equals(method)) {
+                    crudHandler.listVersions(request, response, basePath, segments[0]);
                 } else {
                     response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
                 }

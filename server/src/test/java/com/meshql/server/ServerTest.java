@@ -231,5 +231,15 @@ class ServerTest {
         public List<Envelope> list(AuthSession session) {
             return Collections.emptyList();
         }
+
+        @Override
+        public List<com.meshql.core.VersionRef> listVersions(String id, AuthSession session) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public Optional<Envelope> readVersion(String id, String token, AuthSession session) {
+            return Optional.empty();
+        }
     }
 }

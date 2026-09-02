@@ -24,4 +24,31 @@ public interface Repository {
     List<Envelope> createMany(List<Envelope> payloads, AuthSession session);
     List<Envelope> readMany(List<String> ids, AuthSession session);
     Map<String, Boolean> removeMany(List<String> ids, AuthSession session);
+
+    /**
+     * Every version of one document, oldest first.
+     *
+     * <p>A version the caller cannot read still appears, carrying when it happened
+     * and whether it was a deletion and no token. Omitting it would make the
+     * history look continuous when it is not.
+     *
+     * <p>There is no default implementation, and that absence is the point. A
+     * default returning "unsupported" lets an adapter fall out of conformance with
+     * nothing saying so; a compile error says so.
+     *
+     * @see Versions#listing(List, AuthSession)
+     */
+    List<VersionRef> listVersions(String id, AuthSession session);
+
+    /**
+     * One version of a document, addressed by its token.
+     *
+     * <p>Authorization is the same question {@link #read} asks. An unknown token is
+     * empty; a token naming a version this caller may not read is a
+     * {@link NotAuthorizedException}, because the listing already told them it
+     * exists.
+     *
+     * @see Versions#resolve(List, String, AuthSession)
+     */
+    Optional<Envelope> readVersion(String id, String token, AuthSession session);
 }
