@@ -17,7 +17,7 @@ public class MerkSqlSearcherCertificationTest extends SearcherCertification {
         Auth noAuth = new NoAuth();
 
         this.repository = new MerkSqlRepository(store);
-        this.searcher = new MerkSqlSearcher(store, noAuth);
+        this.searcher = new MerkSqlSearcher(store);
         this.templates = createTemplates();
     }
 

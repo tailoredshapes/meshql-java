@@ -1,6 +1,5 @@
 package com.meshql.repos.sqlite;
 
-import com.meshql.core.Auth;
 import com.meshql.core.Plugin;
 import com.meshql.core.Repository;
 import com.meshql.core.Searcher;
@@ -15,25 +14,14 @@ import static com.tailoredshapes.underbar.ocho.Die.rethrow;
 import static com.tailoredshapes.underbar.ocho.UnderBar.each;
 
 public class SQLitePlugin implements Plugin {
-    private final Auth auth;
     Map<String, SQLiteDataSource> dataSources = new ConcurrentHashMap<>();
-
-    public SQLitePlugin(Auth auth) {
-        this.auth = auth;
-    }
-
 
     @Override
     public Searcher createSearcher(StorageConfig config) {
-        return createSearcher(config, null);
-    }
-
-    @Override
-    public Searcher createSearcher(StorageConfig config, Auth auth) {
         assert config instanceof SQLiteConfig;
         SQLiteConfig c = (SQLiteConfig)config;
         var dataSource = buildDatasource(c);
-        return new SQLiteSearcher(dataSource, c.table, auth != null ? auth : this.auth);
+        return new SQLiteSearcher(dataSource, c.table);
     }
 
     private SQLiteDataSource buildDatasource(SQLiteConfig c) {
@@ -51,7 +39,7 @@ public class SQLitePlugin implements Plugin {
     }
 
     @Override
-    public Repository createRepository(StorageConfig config, Auth auth) {
+    public Repository createRepository(StorageConfig config) {
         assert config instanceof SQLiteConfig;
         SQLiteConfig c = (SQLiteConfig)config;
         var dataSource = buildDatasource(c);

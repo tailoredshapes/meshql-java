@@ -2,7 +2,6 @@ package com.meshql.benchmark;
 
 import com.github.jknack.handlebars.Handlebars;
 import com.github.jknack.handlebars.Template;
-import com.meshql.auth.noop.NoAuth;
 import com.meshql.core.*;
 import com.meshql.repositories.ksql.KsqlHttpClient;
 import com.meshql.repositories.ksql.KsqlRepository;
@@ -35,8 +34,8 @@ public class JavaApiBenchmark {
 
     static final int WARMUP = 200;
     static final int ITERATIONS = 1000;
-    static final List<String> TOKENS = List.of("bench");
-    static final Auth AUTH = new NoAuth();
+    /** The caller the benchmark runs as: an ordinary token holder. */
+    static final AuthSession SESSION = new com.meshql.auth.token.TokenSession(List.of("bench"));
     static final Handlebars HB = new Handlebars();
 
     public static void main(String[] args) throws Exception {
@@ -56,7 +55,7 @@ public class JavaApiBenchmark {
         MongoDatabase mongoDB = mongoClient.getDatabase("bench");
         MongoCollection<Document> mongoCol = mongoDB.getCollection("bench_" + UUID.randomUUID());
         Repository mongoRepo = new MongoRepository(mongoCol);
-        Searcher mongoSearcher = new MongoSearcher(mongoCol, AUTH);
+        Searcher mongoSearcher = new MongoSearcher(mongoCol);
         Template mongoFindById = HB.compileInline("{\"id\": \"{{id}}\"}");
         Template mongoFindByName = HB.compileInline("{\"payload.name\": \"{{id}}\"}");
         Template mongoFindAll = HB.compileInline("{}");
@@ -71,7 +70,7 @@ public class JavaApiBenchmark {
         sqliteDS.setUrl("jdbc:sqlite:" + sqliteFile.getAbsolutePath());
         SQLiteRepository sqliteRepo = new SQLiteRepository(sqliteDS.getConnection(), "bench");
         sqliteRepo.initialize();
-        Searcher sqliteSearcher = new SQLiteSearcher(sqliteDS, "bench", AUTH);
+        Searcher sqliteSearcher = new SQLiteSearcher(sqliteDS, "bench");
         Template sqliteFindById = HB.compileInline("id = '{{id}}'");
         Template sqliteFindByName = HB.compileInline("json_extract(payload, '$.name') = '{{id}}'");
         Template sqliteFindAll = HB.compileInline("1=1");
@@ -91,11 +90,11 @@ public class JavaApiBenchmark {
 
             KsqlHttpClient ksqlClient = new KsqlHttpClient(ksqlDbUrl);
             String topic = "bench_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-            KsqlRepository ksqlRepo = new KsqlRepository(producer, ksqlClient, bootstrapServers, topic, AUTH);
+            KsqlRepository ksqlRepo = new KsqlRepository(producer, ksqlClient, bootstrapServers, topic);
             ksqlRepo.initialize(1, 1);
             // Wait for ksqlDB materialized table to be ready
             Thread.sleep(3000);
-            Searcher ksqlSearcher = new KsqlSearcher(ksqlClient, topic, AUTH);
+            Searcher ksqlSearcher = new KsqlSearcher(ksqlClient, topic);
             Template ksqlFindById = HB.compileInline("id = '{{id}}'");
             Template ksqlFindByName = HB.compileInline("EXTRACTJSONFIELD(payload, '$.name') = '{{id}}'");
             Template ksqlFindAll = HB.compileInline("1=1");
@@ -123,18 +122,18 @@ public class JavaApiBenchmark {
         for (int i = 0; i < 50; i++) {
             Envelope e = repo.create(
                     new Envelope(null, stash("name", "item-" + i, "type", "A", "count", i), null, false, null),
-                    TOKENS);
+                    SESSION);
             ids.add(e.id());
         }
 
         // Benchmark: create
         long[] createTimes = new long[ITERATIONS];
         for (int i = 0; i < WARMUP; i++) {
-            repo.create(new Envelope(null, stash("name", "warmup-" + i, "type", "B", "count", i), null, false, null), TOKENS);
+            repo.create(new Envelope(null, stash("name", "warmup-" + i, "type", "B", "count", i), null, false, null), SESSION);
         }
         for (int i = 0; i < ITERATIONS; i++) {
             long start = System.nanoTime();
-            repo.create(new Envelope(null, stash("name", "bench-" + i, "type", "B", "count", i), null, false, null), TOKENS);
+            repo.create(new Envelope(null, stash("name", "bench-" + i, "type", "B", "count", i), null, false, null), SESSION);
             createTimes[i] = System.nanoTime() - start;
         }
         printStats("Repository.create()", createTimes);
@@ -142,11 +141,11 @@ public class JavaApiBenchmark {
         // Benchmark: read
         long[] readTimes = new long[ITERATIONS];
         for (int i = 0; i < WARMUP; i++) {
-            repo.read(ids.get(i % ids.size()), TOKENS, Instant.now());
+            repo.read(ids.get(i % ids.size()), SESSION, Instant.now());
         }
         for (int i = 0; i < ITERATIONS; i++) {
             long start = System.nanoTime();
-            repo.read(ids.get(i % ids.size()), TOKENS, Instant.now());
+            repo.read(ids.get(i % ids.size()), SESSION, Instant.now());
             readTimes[i] = System.nanoTime() - start;
         }
         printStats("Repository.read()", readTimes);
@@ -154,11 +153,11 @@ public class JavaApiBenchmark {
         // Benchmark: list (1250 entities after warmup+setup)
         long[] listTimes = new long[ITERATIONS];
         for (int i = 0; i < WARMUP; i++) {
-            repo.list(TOKENS);
+            repo.list(SESSION);
         }
         for (int i = 0; i < ITERATIONS; i++) {
             long start = System.nanoTime();
-            repo.list(TOKENS);
+            repo.list(SESSION);
             listTimes[i] = System.nanoTime() - start;
         }
         printStats("Repository.list()", listTimes);
@@ -166,11 +165,11 @@ public class JavaApiBenchmark {
         // Benchmark: Searcher.find (by ID)
         long[] findTimes = new long[ITERATIONS];
         for (int i = 0; i < WARMUP; i++) {
-            searcher.find(findById, stash("id", ids.get(i % ids.size())), TOKENS, System.currentTimeMillis());
+            searcher.find(findById, stash("id", ids.get(i % ids.size())), SESSION, System.currentTimeMillis());
         }
         for (int i = 0; i < ITERATIONS; i++) {
             long start = System.nanoTime();
-            searcher.find(findById, stash("id", ids.get(i % ids.size())), TOKENS, System.currentTimeMillis());
+            searcher.find(findById, stash("id", ids.get(i % ids.size())), SESSION, System.currentTimeMillis());
             findTimes[i] = System.nanoTime() - start;
         }
         printStats("Searcher.find(byId)", findTimes);
@@ -178,11 +177,11 @@ public class JavaApiBenchmark {
         // Benchmark: Searcher.find (by name — payload field query)
         long[] findNameTimes = new long[ITERATIONS];
         for (int i = 0; i < WARMUP; i++) {
-            searcher.find(findByName, stash("id", "item-" + (i % 50)), TOKENS, System.currentTimeMillis());
+            searcher.find(findByName, stash("id", "item-" + (i % 50)), SESSION, System.currentTimeMillis());
         }
         for (int i = 0; i < ITERATIONS; i++) {
             long start = System.nanoTime();
-            searcher.find(findByName, stash("id", "item-" + (i % 50)), TOKENS, System.currentTimeMillis());
+            searcher.find(findByName, stash("id", "item-" + (i % 50)), SESSION, System.currentTimeMillis());
             findNameTimes[i] = System.nanoTime() - start;
         }
         printStats("Searcher.find(byName)", findNameTimes);
@@ -190,11 +189,11 @@ public class JavaApiBenchmark {
         // Benchmark: Searcher.findAll (all entities)
         long[] findAllTimes = new long[ITERATIONS];
         for (int i = 0; i < WARMUP; i++) {
-            searcher.findAll(findAll, stash(), TOKENS, System.currentTimeMillis());
+            searcher.findAll(findAll, stash(), SESSION, System.currentTimeMillis());
         }
         for (int i = 0; i < ITERATIONS; i++) {
             long start = System.nanoTime();
-            searcher.findAll(findAll, stash(), TOKENS, System.currentTimeMillis());
+            searcher.findAll(findAll, stash(), SESSION, System.currentTimeMillis());
             findAllTimes[i] = System.nanoTime() - start;
         }
         printStats("Searcher.findAll()", findAllTimes);

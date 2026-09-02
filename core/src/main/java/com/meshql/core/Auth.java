@@ -1,55 +1,41 @@
 package com.meshql.core;
 
 import com.tailoredshapes.stash.Stash;
-import java.util.List;
 
+/**
+ * The auth plugin. It is the only thing in meshql entitled to answer "can this
+ * requester see this record, or create it".
+ *
+ * <p>The surface is deliberately two methods and nothing else. There is no
+ * helper here that lets a caller work out the answer without asking - no
+ * "are these tokens visible to those tokens", no "does this caller see
+ * everything" - because every such helper is an invitation for a storage
+ * adapter to answer for itself, and eleven of them did, eleven different ways.
+ *
+ * <p>The rules that used to live in framework code - that {@code "*"} means
+ * "sees everything", that an envelope with an empty mark is public, and that a
+ * write copies the caller's tokens onto the envelope - now live inside whichever
+ * plugin wants them. A plugin that authorizes on a payload field holds no tokens
+ * at all and is none the worse for it.
+ */
 public interface Auth {
     /**
-     * The token that entitles its holder to every record, and the token that makes
-     * a record readable by every caller.
+     * Resolve the caller from a request and return their session.
+     *
+     * @param requestContext the portable map an edge lifts from trusted identity
+     *                       headers - today's AuthContext - rather than a raw
+     *                       HTTP request, which does not port across runtimes
+     * @return a session, never null. A plugin that cannot identify the caller
+     *         returns a session that answers for an anonymous one, not null.
      */
-    String WILDCARD_TOKEN = "*";
-
-    List<String> getAuthToken(Stash context);
-    boolean isAuthorized(List<String> credentials, Envelope data);
-
-    /**
-     * The record-level visibility rule every surface applies.
-     *
-     * <p>Public-ness is a property of the envelope, not of the caller. An envelope
-     * carrying no authorized tokens is public and stays readable by anyone. A caller
-     * sees everything only by holding {@link #WILDCARD_TOKEN} explicitly. A caller
-     * holding no tokens at all falls through to the intersection, which is empty, so
-     * an anonymous read reaches public records and nothing else.
-     *
-     * <p>Every backend used to grant a caller with no tokens a bypass, on the reading
-     * that a credential-less call is an internal or system read. That conflates two
-     * different callers into one representation: a system read presents no tokens, and
-     * so does an anonymous HTTP request. An internal reader that needs to see
-     * everything asks for it with {@link #WILDCARD_TOKEN}.
-     *
-     * @param authorizedTokens the tokens the envelope carries, or null
-     * @param callerTokens     the tokens the caller presents, or null
-     * @return true when the caller is entitled to see the envelope
-     */
-    static boolean tokensVisibleTo(List<String> authorizedTokens, List<String> callerTokens) {
-        if (authorizedTokens == null || authorizedTokens.isEmpty()) {
-            return true;
-        }
-        List<String> caller = callerTokens != null ? callerTokens : List.of();
-        if (caller.contains(WILDCARD_TOKEN) || authorizedTokens.contains(WILDCARD_TOKEN)) {
-            return true;
-        }
-        return authorizedTokens.stream().anyMatch(caller::contains);
-    }
+    AuthSession authenticate(Stash requestContext);
 
     /**
-     * Whether a caller holding these tokens is entitled to every record.
+     * The session a caller outside a request uses.
      *
-     * <p>Storage backends that filter inside a query use this to decide whether to
-     * append a visibility predicate at all.
+     * <p>A worker, a change feed, a migration or a certification harness reading
+     * storage directly is entitled to everything - but has to say so, with this,
+     * rather than by presenting nothing and being waved through.
      */
-    static boolean seesEverything(List<String> callerTokens) {
-        return callerTokens != null && callerTokens.contains(WILDCARD_TOKEN);
-    }
+    AuthSession systemSession();
 }

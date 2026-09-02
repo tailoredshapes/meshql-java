@@ -1,5 +1,7 @@
 package com.meshql.repos.certification;
 
+import com.meshql.auth.token.TokenSession;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
 import com.meshql.core.Repository;
 import com.tailoredshapes.stash.Stash;
@@ -21,6 +23,13 @@ import static org.junit.jupiter.api.Assertions.*;
 public abstract class RepositoryCertification {
     protected Repository repository;
 
+    /**
+     * The caller every scenario runs as: an ordinary token holder, not a system
+     * session, so a repository that ignored the session entirely would still be
+     * caught by the suites that use two callers.
+     */
+    protected final AuthSession session = new TokenSession(list("TOKEN"));
+
     public abstract void init();
 
     @BeforeEach
@@ -35,11 +44,10 @@ public abstract class RepositoryCertification {
                 "count", 3);
 
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        List<String> tokens = list("TOKEN");
 
         Envelope result = repository.create(
                 new Envelope(null, payload, null, false, null),
-                tokens);
+                session);
 
         assertNotNull(result.id());
         assertNotNull(result.createdAt());
@@ -50,12 +58,11 @@ public abstract class RepositoryCertification {
     @Test
     public void readShouldRetrieveAnExistingEnvelopeById() {
         Stash payload = stash("name", "Read Test", "count", 51);
-        List<String> tokens = list("TOKEN");
 
-        Envelope createResult = repository.create(new Envelope(null, payload, null, false, null), tokens);
+        Envelope createResult = repository.create(new Envelope(null, payload, null, false, null), session);
         String id = createResult.id();
 
-        Optional<Envelope> result = repository.read(id, tokens, Instant.now());
+        Optional<Envelope> result = repository.read(id, session, Instant.now());
 
         assertTrue(result.isPresent());
         assertEquals("Read Test", result.get().payload().get("name"));
@@ -67,28 +74,26 @@ public abstract class RepositoryCertification {
                 new Envelope(null, stash("name", "test1", "count", 4), null, false, null),
                 new Envelope(null, stash("name", "test2", "count", 45), null, false, null),
                 new Envelope(null, stash("name", "test3", "count", 2), null, false, null));
-        List<String> tokens = list("TOKEN");
 
         for (Envelope e : envelopes) {
-            repository.create(e, tokens);
+            repository.create(e, session);
         }
 
-        List<Envelope> result = repository.list(tokens);
+        List<Envelope> result = repository.list(session);
         assertEquals(3,result.size());
     }
 
     @Test
     public void removeShouldDeleteAnEnvelopeById() {
         Stash payload = stash("name", "Remove Test", "count", 51);
-        List<String> tokens = list("TOKEN");
 
-        Envelope createResult = repository.create(new Envelope(null, payload, null, false, null), tokens);
+        Envelope createResult = repository.create(new Envelope(null, payload, null, false, null), session);
         String id = createResult.id();
 
-        Boolean result = repository.remove(id, tokens);
+        Boolean result = repository.remove(id, session);
         assertTrue(result);
 
-        Optional<Envelope> readResult = repository.read(id, tokens, Instant.now());
+        Optional<Envelope> readResult = repository.read(id, session, Instant.now());
         assertTrue(readResult.isEmpty());
     }
 
@@ -98,9 +103,8 @@ public abstract class RepositoryCertification {
                 new Envelope(null, stash("name", "test1", "count", 4), null, false, null),
                 new Envelope(null, stash("name", "test2", "count", 45), null, false, null),
                 new Envelope(null, stash("name", "test3", "count", 2), null, false, null));
-        List<String> tokens = List.of("TOKEN");
 
-        List<Envelope> result = repository.createMany(envelopes, tokens);
+        List<Envelope> result = repository.createMany(envelopes, session);
         assertEquals(envelopes.size(), result.size());
     }
 
@@ -110,14 +114,13 @@ public abstract class RepositoryCertification {
                 new Envelope(null, stash("name", "test1", "count", 4), null, false, null),
                 new Envelope(null, stash("name", "test2", "count", 45), null, false, null),
                 new Envelope(null, stash("name", "test3", "count", 2), null, false, null));
-        List<String> tokens = list("TOKEN");
 
-        List<Envelope> createResult = repository.createMany(envelopes, tokens);
+        List<Envelope> createResult = repository.createMany(envelopes, session);
         List<String> ids = createResult.subList(0, 2).stream()
                 .map(Envelope::id)
                 .toList();
 
-        List<Envelope> result = repository.readMany(ids, tokens);
+        List<Envelope> result = repository.readMany(ids, session);
         assertEquals(2, result.size());
     }
 
@@ -127,31 +130,29 @@ public abstract class RepositoryCertification {
                 new Envelope(null, stash("name", "test1", "count", 4), null, false, null),
                 new Envelope(null, stash("name", "test2", "count", 45), null, false, null),
                 new Envelope(null, stash("name", "test3", "count", 2), null, false, null));
-        List<String> tokens = List.of("TOKEN");
 
-        List<Envelope> createResult = repository.createMany(envelopes, tokens);
+        List<Envelope> createResult = repository.createMany(envelopes, session);
         List<String> ids = map(createResult, Envelope::id);
 
         List<String> toDelete = ids.subList(0, 2);
-        Map<String, Boolean> result = repository.removeMany(toDelete, tokens);
+        Map<String, Boolean> result = repository.removeMany(toDelete, session);
 
         for (String id : toDelete) {
             assertTrue(result.get(id));
         }
 
-        List<Envelope> listed = repository.list(tokens);
+        List<Envelope> listed = repository.list(session);
         assertEquals(1, listed.size());
     }
 
     @Test
     public void shouldAllowMultipleVersionsOfTheSameIdAndReadThemByTimestamp() throws InterruptedException {
-        List<String> tokens = List.of("TOKEN");
 
         Envelope doc1 = repository.create(
                 new Envelope(null, stash("version", "v1", "msg", "First version"), null, false, null),
-                tokens);
+                session);
 
-        Optional<Envelope> docRead1 = repository.read(doc1.id(), tokens, Instant.now());
+        Optional<Envelope> docRead1 = repository.read(doc1.id(), session, Instant.now());
         assertTrue(docRead1.isPresent());
 
         // Wait for a short period to ensure different timestamps
@@ -159,13 +160,13 @@ public abstract class RepositoryCertification {
 
         Envelope doc2 = repository.create(
                 new Envelope(doc1.id(), stash("version", "v2", "msg", "Second version"), null, false,
-                        doc1.authorizedTokens()),
-                tokens);
+                        doc1.auth()),
+                session);
 
-        Optional<Envelope> docRead2 = repository.read(doc1.id(), tokens, Instant.now());
+        Optional<Envelope> docRead2 = repository.read(doc1.id(), session, Instant.now());
         Optional<Envelope> docRead3 = repository.read(
                 doc1.id(),
-                tokens,
+                session,
                 doc2.createdAt().minusMillis(10));
 
         assertTrue(docRead2.isPresent());
@@ -178,21 +179,20 @@ public abstract class RepositoryCertification {
 
     @Test
     public void shouldOnlyListTheLatestVersionOfAnId() throws InterruptedException {
-        List<String> tokens = list("TOKEN");
 
         Envelope doc1 = repository.create(
                 new Envelope(null, stash("version", "v1", "msg", "First version"), null, false, null),
-                tokens);
+                session);
 
         // Wait for a short period to ensure different timestamps
         Thread.sleep(50);
 
         repository.create(
                 new Envelope(doc1.id(), stash("version", "v2", "msg", "Second version"), null, false,
-                        doc1.authorizedTokens()),
-                tokens);
+                        doc1.auth()),
+                session);
 
-        List<Envelope> allDocs = repository.list(tokens);
+        List<Envelope> allDocs = repository.list(session);
 
         Envelope ourDoc = first(filter(allDocs, e -> e.id().equals(doc1.id())));
 

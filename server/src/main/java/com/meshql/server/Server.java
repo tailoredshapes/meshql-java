@@ -39,10 +39,27 @@ public class Server {
     private static final Logger logger = LoggerFactory.getLogger(Server.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, Plugin> plugins;
+    private final Auth configuredAuth;
     private org.eclipse.jetty.server.Server jettyServer;
 
     public Server(Map<String, Plugin> plugins) {
+        this(plugins, null);
+    }
+
+    /**
+     * Run with an auth plugin the caller supplies rather than one resolved from
+     * configuration.
+     *
+     * <p>A deployment names its plugin in configuration. A certification names it
+     * directly, because the point of {@code auth_plugin.feature} is to run the
+     * whole server against plugins no configuration format knows about - one that
+     * refuses every read, one that authorizes on a payload field.
+     *
+     * @param auth the plugin to use, or null to resolve one from the config
+     */
+    public Server(Map<String, Plugin> plugins, Auth auth) {
         this.plugins = plugins;
+        this.configuredAuth = auth;
     }
 
     public void init(Config config) throws Exception {
@@ -74,7 +91,7 @@ public class Server {
         context.addFilter(corsFilter, "/*", null);
 
         // Process authentication
-        Auth auth = processAuth(config);
+        Auth auth = configuredAuth != null ? configuredAuth : processAuth(config);
 
         // Add health check endpoint (liveness)
         context.addServlet(new ServletHolder(new HealthCheckServlet()), "/health");
@@ -132,8 +149,8 @@ public class Server {
      * over a {@link JWTSubAuthorizer}. The JWT authorizer decodes the {@code sub}
      * claim without verifying the signature - authentication is the edge's job -
      * and Casbin resolves that subject to the roles which act as the caller's
-     * tokens. Record-level authorization is then the token intersection performed
-     * in {@code isAuthorized}; the enforcer is deliberately not consulted for it.
+     * tokens. Record-level authorization is then the token intersection the
+     * session performs; the enforcer is deliberately not consulted for it.
      *
      * <p>Previously this method logged a warning and returned {@link NoAuth}, so a
      * deployment that configured Casbin came up with authorization disabled and said
@@ -181,10 +198,10 @@ public class Server {
             throw new IllegalArgumentException("Plugin for storage type " + config.storage().type + " not found");
         }
 
-        // Pass the server's Auth explicitly: read authorization is enforced inside
-        // the Searcher, so a Searcher holding a different Auth than the rest of the
-        // server means reads go unfiltered while writes look protected.
-        Searcher searcher = plugin.createSearcher(config.storage(), auth);
+        // The Searcher holds no Auth. Authorization travels with the request as an
+        // AuthSession, so a Searcher and the rest of the server can no longer be
+        // wired to different plugins and disagree about who may read what.
+        Searcher searcher = plugin.createSearcher(config.storage());
 
         // Create DTO factory with both external and internal resolver support
         DTOFactory dtoFactory = new DTOFactory(

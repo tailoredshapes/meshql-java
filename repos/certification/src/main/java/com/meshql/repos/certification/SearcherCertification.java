@@ -1,6 +1,8 @@
 package com.meshql.repos.certification;
 
 import com.github.jknack.handlebars.Template;
+import com.meshql.auth.token.TokenSession;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
 import com.meshql.core.Repository;
 import com.meshql.core.Searcher;
@@ -25,7 +27,8 @@ public abstract class SearcherCertification {
     }
 
     public SearcherTemplates templates;
-    public List<String> tokens = list("TOKEN");
+    /** The caller every scenario runs as: an ordinary token holder. */
+    public AuthSession session = new TokenSession(list("TOKEN"));
     public Repository repository;
     public Searcher searcher;
     public List<Envelope> saved = new ArrayList<>();
@@ -35,28 +38,28 @@ public abstract class SearcherCertification {
     @BeforeEach
     public void setUp() throws Exception {
         List<Envelope> testData = List.of(
-                new Envelope(null, stash("name", "Bruce", "count", 1, "type", "A"), null, false, list()),
-                new Envelope(null,stash("name", "Charlie", "count", 2, "type", "A"), null, false, list()),
-                new Envelope(null,stash("name", "Danny", "count", 3, "type", "A"), null, false, list()),
-                new Envelope(null,stash("name", "Ewan", "count", 4, "type", "A"), null, false, list()),
-                new Envelope(null,stash("name", "Fred", "count", 5, "type", "B"), null, false, list()),
-                new Envelope(null,stash("name", "Greg", "count", 6, "type", "B"), null, false, list()),
-                new Envelope(null,stash("name", "Henry", "count", 7, "type", "B"), null, false, list()),
-                new Envelope(null,stash("name", "Ian", "count", 8, "type", "B"), null, false, list()),
-                new Envelope(null,stash("name", "Gretchen", "count", 9, "type", "B"), null, false, list()),
-                new Envelope(null,stash("name", "Casie", "count", 9, "type", "A"), null, false, list())
+                new Envelope(null, stash("name", "Bruce", "count", 1, "type", "A"), null, false, null),
+                new Envelope(null,stash("name", "Charlie", "count", 2, "type", "A"), null, false, null),
+                new Envelope(null,stash("name", "Danny", "count", 3, "type", "A"), null, false, null),
+                new Envelope(null,stash("name", "Ewan", "count", 4, "type", "A"), null, false, null),
+                new Envelope(null,stash("name", "Fred", "count", 5, "type", "B"), null, false, null),
+                new Envelope(null,stash("name", "Greg", "count", 6, "type", "B"), null, false, null),
+                new Envelope(null,stash("name", "Henry", "count", 7, "type", "B"), null, false, null),
+                new Envelope(null,stash("name", "Ian", "count", 8, "type", "B"), null, false, null),
+                new Envelope(null,stash("name", "Gretchen", "count", 9, "type", "B"), null, false, null),
+                new Envelope(null,stash("name", "Casie", "count", 9, "type", "A"), null, false, null)
         );
 
         init();
 
-        saved = repository.createMany(new ArrayList<>(testData), tokens);
+        saved = repository.createMany(new ArrayList<>(testData), session);
 
         // Find Gretchen and remove her
         Envelope gretchen = saved.stream()
                 .filter(e -> "Gretchen".equals(e.payload().get("name")))
                 .findFirst()
                 .orElseThrow();
-        repository.remove(gretchen.id(), tokens);
+        repository.remove(gretchen.id(), session);
 
         // Find Casie and update to Cassie
         Envelope cassie = saved.stream()
@@ -69,10 +72,10 @@ public abstract class SearcherCertification {
                 stash("name", "Cassie", "count", 10, "type", "A"),
                 null,
                 false,
-                tokens
+                null
         );
 
-        repository.create(updatedCass, tokens);
+        repository.create(updatedCass, session);
     }
 
     @Test
@@ -82,7 +85,7 @@ public abstract class SearcherCertification {
         Stash result = searcher.find(
                 templates.findById,
                 stash("id", id),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
 
@@ -96,7 +99,7 @@ public abstract class SearcherCertification {
         Stash result = searcher.find(
                 templates.findById,
                 stash("id", id),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
 
@@ -111,7 +114,7 @@ public abstract class SearcherCertification {
         Stash result = searcher.find(
                 templates.findByName,
                 stash("id", id),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
 
@@ -125,7 +128,7 @@ public abstract class SearcherCertification {
         List<Stash> result = searcher.findAll(
                 templates.findAllByType,
                 stash("id", id),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
 
@@ -145,7 +148,7 @@ public abstract class SearcherCertification {
         List<Stash> result = searcher.findAll(
                 templates.findByNameAndType,
                 stash("id", "foo", "name", "Henry", "type", "B"),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
 
@@ -160,7 +163,7 @@ public abstract class SearcherCertification {
         List<Stash> result = searcher.findAll(
                 templates.findAllByType,
                 stash("id", id),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
 
@@ -173,7 +176,7 @@ public abstract class SearcherCertification {
         List<Stash> unlimited = searcher.findAll(
                 templates.findAllByType,
                 stash("id", "A"),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
         assertEquals(5, unlimited.size());
@@ -181,7 +184,7 @@ public abstract class SearcherCertification {
         List<Stash> limited = searcher.findAll(
                 templates.findAllByType,
                 stash("id", "A", "limit", 2),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
         assertEquals(2, limited.size());
@@ -192,7 +195,7 @@ public abstract class SearcherCertification {
         List<Stash> result = searcher.findAll(
                 templates.findByNameAndType,
                 new Stash(),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
 
@@ -212,7 +215,7 @@ public abstract class SearcherCertification {
         Stash found = searcher.find(
                 templates.findById,
                 stash("id", id),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
 
@@ -223,7 +226,7 @@ public abstract class SearcherCertification {
         List<Stash> all = searcher.findAll(
                 templates.findAllByType,
                 stash("id", "A"),
-                tokens,
+                session,
                 System.currentTimeMillis()
         );
         assertFalse(all.isEmpty());

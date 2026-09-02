@@ -24,6 +24,11 @@
             <artifactId>noop</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>token</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!-- MongoDB backend + in-memory server -->
         <dependency>

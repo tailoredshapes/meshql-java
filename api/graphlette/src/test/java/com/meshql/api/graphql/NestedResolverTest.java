@@ -241,7 +241,7 @@ class NestedResolverTest {
     private static Searcher createAuthorSearcher() {
         return new Searcher() {
             @Override
-            public Stash find(com.github.jknack.handlebars.Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+            public Stash find(com.github.jknack.handlebars.Template queryTemplate, Stash args, com.meshql.core.AuthSession session, long timestamp) {
                 String id = (String) args.get("id");
                 if ("author1".equals(id)) {
                     return stash(
@@ -253,7 +253,7 @@ class NestedResolverTest {
             }
 
             @Override
-            public List<Stash> findAll(com.github.jknack.handlebars.Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+            public List<Stash> findAll(com.github.jknack.handlebars.Template queryTemplate, Stash args, com.meshql.core.AuthSession session, long timestamp) {
                 return Collections.emptyList();
             }
         };
@@ -262,7 +262,7 @@ class NestedResolverTest {
     private static Searcher createBookSearcher() {
         return new Searcher() {
             @Override
-            public Stash find(com.github.jknack.handlebars.Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+            public Stash find(com.github.jknack.handlebars.Template queryTemplate, Stash args, com.meshql.core.AuthSession session, long timestamp) {
                 String id = (String) args.get("id");
                 if ("book1".equals(id)) {
                     return stash(
@@ -281,7 +281,7 @@ class NestedResolverTest {
             }
 
             @Override
-            public List<Stash> findAll(com.github.jknack.handlebars.Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+            public List<Stash> findAll(com.github.jknack.handlebars.Template queryTemplate, Stash args, com.meshql.core.AuthSession session, long timestamp) {
                 // Note: The query parameter is always "id" by convention
                 String authorId = (String) args.get("id");
                 if ("author1".equals(authorId)) {

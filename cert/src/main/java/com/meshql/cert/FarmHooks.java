@@ -74,9 +74,9 @@ public abstract class FarmHooks {
         StorageConfig coopStorage = createCoopStorageConfig();
         StorageConfig henStorage = createHenStorageConfig();
 
-        world.repositories.put("farm", plugin.createRepository(farmStorage, null));
-        world.repositories.put("coop", plugin.createRepository(coopStorage, null));
-        world.repositories.put("hen", plugin.createRepository(henStorage, null));
+        world.repositories.put("farm", plugin.createRepository(farmStorage));
+        world.repositories.put("coop", plugin.createRepository(coopStorage));
+        world.repositories.put("hen", plugin.createRepository(henStorage));
 
         // Start server (subclass responsibility)
         startServer();

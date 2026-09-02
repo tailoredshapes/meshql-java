@@ -5,6 +5,7 @@ import com.github.jknack.handlebars.Handlebars;
 import com.meshql.core.config.QueryConfig;
 import com.meshql.core.config.RootConfig;
 import com.meshql.core.Auth;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Searcher;
 import com.tailoredshapes.stash.Stash;
 import graphql.schema.DataFetcher;
@@ -67,14 +68,14 @@ public class Root {
 
         return (DataFetchingEnvironment environment) -> {
             Stash args = new Stash(environment.getArguments());
-            List<String> authToken = authorizer.getAuthToken(authContext(environment, args));
+            AuthSession session = authorizer.authenticate(authContext(environment, args));
 
             long timestamp = getTimestamp(args);
 
             List<Stash> results = searcher.findAll(
                     queryTemplate,
                     args,
-                    authToken,
+                    session,
                     timestamp
             );
 
@@ -103,14 +104,14 @@ public class Root {
         return (DataFetchingEnvironment environment) -> {
             Stash args = new Stash(environment.getArguments());
 
-            List<String> authToken = authorizer.getAuthToken(authContext(environment, args));
+            AuthSession session = authorizer.authenticate(authContext(environment, args));
 
             long timestamp = getTimestamp(args);
-            
+
             Map<String, Object> payload = searcher.find(
                 queryTemplate,
                 args,
-                authToken,
+                session,
                 timestamp
             );
 
@@ -137,7 +138,7 @@ public class Root {
     }
 
     /**
-     * Build the context handed to {@link Auth#getAuthToken}.
+     * Build the context handed to {@link Auth#authenticate}.
      *
      * <p>An Auth implementation needs the <em>request</em>, not the query. Passing
      * only the GraphQL arguments meant that a header-reading Auth saw nothing it
@@ -146,7 +147,9 @@ public class Root {
      * compatibility with any Auth that reads them.
      *
      * <p>Headers are absent for genuinely internal executions, in which case the
-     * caller resolves to no credentials - which remains deliberately permitted.
+     * plugin resolves an unidentified caller. That is still a session, and what it
+     * may see is the plugin's answer: there is no unset session and no path here
+     * that skips asking.
      */
     private static Stash authContext(DataFetchingEnvironment environment, Stash args) {
         Stash context = new Stash();

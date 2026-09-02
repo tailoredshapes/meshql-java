@@ -254,7 +254,7 @@ public class Main {
 
         Auth auth = new NoAuth();
         Map<String, Plugin> plugins = new HashMap<>();
-        plugins.put("sqlite", new SQLitePlugin(auth));
+        plugins.put("sqlite", new SQLitePlugin());
 
         logger.info("Initializing server on port {}", port);
 

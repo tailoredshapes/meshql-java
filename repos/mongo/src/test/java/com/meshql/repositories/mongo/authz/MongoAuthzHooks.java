@@ -76,8 +76,8 @@ public class MongoAuthzHooks {
         );
 
         plugins = new HashMap<>();
-        plugins.put("mongo", new MongoPlugin(new NoAuth()));
-        plugins.get("mongo").createRepository(storage, null);
+        plugins.put("mongo", new MongoPlugin());
+        plugins.get("mongo").createRepository(storage);
 
         server = env.buildService(plugins);
 
@@ -89,7 +89,7 @@ public class MongoAuthzHooks {
         world.env = env;
         world.server = server;
         world.plugins = plugins;
-        world.repository = plugins.get("mongo").createRepository(storage, null);
+        world.repository = plugins.get("mongo").createRepository(storage);
     }
 
     @AfterAll

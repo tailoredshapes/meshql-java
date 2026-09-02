@@ -71,10 +71,10 @@ public class SQLiteAuthzHooks {
         );
 
         plugins = new HashMap<>();
-        plugins.put("sqlite", new SQLitePlugin(new NoAuth()));
+        plugins.put("sqlite", new SQLitePlugin());
 
         // Creates the table.
-        plugins.get("sqlite").createRepository(storage, null);
+        plugins.get("sqlite").createRepository(storage);
 
         server = env.buildService(plugins);
 
@@ -86,7 +86,7 @@ public class SQLiteAuthzHooks {
         world.env = env;
         world.server = server;
         world.plugins = plugins;
-        world.repository = plugins.get("sqlite").createRepository(storage, null);
+        world.repository = plugins.get("sqlite").createRepository(storage);
     }
 
     @AfterAll

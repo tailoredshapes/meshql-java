@@ -1,6 +1,8 @@
 package com.meshql.cert;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.meshql.auth.token.TokenSession;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Plugin;
 import com.meshql.core.Repository;
 
@@ -12,6 +14,14 @@ import java.util.Map;
  * Matches TypeScript FarmTestWorld pattern - lightweight with references to shared FarmEnv.
  */
 public class FarmWorld {
+    /**
+     * The session the farm suite writes and reads with. It holds no tokens, so
+     * everything it writes is stamped markless and stays public - which is what
+     * this suite was doing before, when it passed an empty token list, and what
+     * it needs, because it reads back over unauthenticated HTTP.
+     */
+    public static final AuthSession SESSION = new TokenSession(java.util.List.of());
+
     // Reference to shared environment (persistent across scenarios)
     public FarmEnv env;
 

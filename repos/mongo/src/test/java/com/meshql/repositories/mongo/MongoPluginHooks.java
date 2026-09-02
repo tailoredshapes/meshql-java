@@ -61,7 +61,7 @@ public class MongoPluginHooks extends Hooks {
             config.collection = collectionName;
 
             this.world.storageConfig = config;
-            this.world.plugin = new MongoPlugin(this.world.auth);
+            this.world.plugin = new MongoPlugin();
 
             // Set up MongoDB query templates
             try {

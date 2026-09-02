@@ -1,5 +1,6 @@
 package com.meshql.repositories.ksql;
 
+import com.meshql.auth.token.TokenMark;
 import com.meshql.core.Envelope;
 import com.tailoredshapes.stash.Stash;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,7 @@ public class ConvertersTest {
     void envelopeToJsonShouldSerializeCorrectly() {
         Instant now = Instant.now();
         Stash payload = stash("name", "Test", "count", 3);
-        Envelope envelope = new Envelope("abc-123", payload, now, false, List.of("TOKEN"));
+        Envelope envelope = new Envelope("abc-123", payload, now, false, TokenMark.of(List.of("TOKEN")));
 
         String json = envelopeToJson(envelope);
 
@@ -39,7 +40,7 @@ public class ConvertersTest {
 
         assertNotNull(json);
         assertTrue(json.contains("\"payload\":\"{}\""));
-        assertTrue(json.contains("\"authorized_tokens\":\"[]\""));
+        assertTrue(json.contains("\"authorized_tokens\":\"{}\""));
     }
 
     @Test
@@ -49,7 +50,7 @@ public class ConvertersTest {
         row.put("PAYLOAD", "{\"name\":\"Test\",\"count\":3}");
         row.put("CREATED_AT", 1707000000000L);
         row.put("DELETED", false);
-        row.put("AUTHORIZED_TOKENS", "[\"TOKEN\"]");
+        row.put("AUTHORIZED_TOKENS", "{\"tokens\":[\"TOKEN\"]}");
 
         Envelope envelope = rowToEnvelope("abc-123", row);
 
@@ -58,7 +59,7 @@ public class ConvertersTest {
         assertEquals(3, ((Number) envelope.payload().get("count")).intValue());
         assertEquals(Instant.ofEpochMilli(1707000000000L), envelope.createdAt());
         assertFalse(envelope.deleted());
-        assertEquals(List.of("TOKEN"), envelope.authorizedTokens());
+        assertEquals(List.of("TOKEN"), TokenMark.tokensOf(envelope));
     }
 
     @Test
@@ -68,14 +69,14 @@ public class ConvertersTest {
         row.put("payload", "{\"name\":\"Lower\"}");
         row.put("created_at", 1707000000000L);
         row.put("deleted", true);
-        row.put("authorized_tokens", "[\"A\",\"B\"]");
+        row.put("authorized_tokens", "{\"tokens\":[\"A\",\"B\"]}");
 
         Envelope envelope = rowToEnvelope("def-456", row);
 
         assertEquals("def-456", envelope.id());
         assertEquals("Lower", envelope.payload().get("name"));
         assertTrue(envelope.deleted());
-        assertEquals(List.of("A", "B"), envelope.authorizedTokens());
+        assertEquals(List.of("A", "B"), TokenMark.tokensOf(envelope));
     }
 
     @Test
@@ -102,21 +103,20 @@ public class ConvertersTest {
     }
 
     @Test
-    void parseTokensShouldHandleValidArray() {
-        List<String> tokens = parseTokens("[\"A\",\"B\",\"C\"]");
-        assertEquals(List.of("A", "B", "C"), tokens);
+    void parseAuthShouldReadTheMarkBackVerbatim() {
+        Stash auth = parseAuth("{\"tokens\":[\"A\",\"B\",\"C\"]}");
+        assertEquals(List.of("A", "B", "C"), auth.get("tokens"));
     }
 
     @Test
-    void parseTokensShouldHandleEmptyArray() {
-        List<String> tokens = parseTokens("[]");
-        assertTrue(tokens.isEmpty());
+    void parseAuthShouldHandleAnEmptyMark() {
+        Stash auth = parseAuth("{}");
+        assertTrue(auth.isEmpty());
     }
 
     @Test
-    void parseTokensShouldHandleNull() {
-        List<String> tokens = parseTokens(null);
-        assertTrue(tokens.isEmpty());
+    void parseAuthShouldHandleNull() {
+        assertNull(parseAuth(null));
     }
 
     @Test

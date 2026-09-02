@@ -28,7 +28,7 @@ public class RepositorySteps {
         if (world.plugin == null) {
             throw new IllegalStateException("Plugin not provided to test");
         }
-        world.repository = world.plugin.createRepository(world.storageConfig, world.auth);
+        world.repository = world.plugin.createRepository(world.storageConfig);
     }
 
     @Given("I have created envelopes:")
@@ -40,7 +40,7 @@ public class RepositorySteps {
 
             Envelope envelope = world.repository.create(
                 new Envelope(null, payload, null, false, null),
-                world.tokens
+                world.session
             );
             world.envelopes.put(name, envelope);
         }
@@ -58,7 +58,7 @@ public class RepositorySteps {
             .map(row -> new Envelope(null, convertToStash(row), null, false, null))
             .collect(Collectors.toList());
 
-        List<Envelope> created = world.repository.createMany(newEnvelopes, world.tokens);
+        List<Envelope> created = world.repository.createMany(newEnvelopes, world.session);
 
         // Key on the stored payload name so the step holds whatever order the backend returns.
         for (Envelope envelope : created) {
@@ -82,9 +82,9 @@ public class RepositorySteps {
                 payload,
                 null,
                 false,
-                existingEnvelope.authorizedTokens()
+                existingEnvelope.auth()
             ),
-            world.tokens
+            world.session
         );
 
         world.envelopes.put(name, newVersion);
@@ -104,12 +104,12 @@ public class RepositorySteps {
             .collect(Collectors.toList());
 
         if (ids.size() == 1) {
-            Optional<Envelope> result = world.repository.read(ids.get(0), world.tokens, Instant.now());
+            Optional<Envelope> result = world.repository.read(ids.get(0), world.session, Instant.now());
             world.searchResult = result.map(Envelope::payload).orElse(null);
             world.searchResults = result.map(e -> Collections.singletonList(e.payload()))
                 .orElse(Collections.emptyList());
         } else {
-            List<Envelope> results = world.repository.readMany(ids, world.tokens);
+            List<Envelope> results = world.repository.readMany(ids, world.session);
             world.searchResults = results.stream()
                 .map(Envelope::payload)
                 .collect(Collectors.toList());
@@ -122,7 +122,7 @@ public class RepositorySteps {
         if (envelope == null || envelope.id() == null) {
             throw new IllegalStateException("Envelope \"" + name + "\" not found or has no ID");
         }
-        world.removeResult = world.repository.remove(envelope.id(), world.tokens);
+        world.removeResult = world.repository.remove(envelope.id(), world.session);
     }
 
     @When("^I remove envelopes (\\[.*\\]) by their IDs$")
@@ -138,12 +138,12 @@ public class RepositorySteps {
             })
             .collect(Collectors.toList());
 
-        world.removeResults = world.repository.removeMany(ids, world.tokens);
+        world.removeResults = world.repository.removeMany(ids, world.session);
     }
 
     @When("I list all envelopes")
     public void listAllEnvelopes() {
-        List<Envelope> results = world.repository.list(world.tokens);
+        List<Envelope> results = world.repository.list(world.session);
         world.searchResults = results.stream()
             .map(Envelope::payload)
             .collect(Collectors.toList());
@@ -163,7 +163,7 @@ public class RepositorySteps {
 
         Optional<Envelope> result = world.repository.read(
             envelope.id(),
-            world.tokens,
+            world.session,
             Instant.ofEpochMilli(timestamp)
         );
 
@@ -185,10 +185,10 @@ public class RepositorySteps {
             .collect(Collectors.toList());
 
         if (ids.size() == 1) {
-            Optional<Envelope> result = world.repository.read(ids.get(0), world.tokens, Instant.now());
+            Optional<Envelope> result = world.repository.read(ids.get(0), world.session, Instant.now());
             assertTrue(result.isEmpty());
         } else {
-            List<Envelope> results = world.repository.readMany(ids, world.tokens);
+            List<Envelope> results = world.repository.readMany(ids, world.session);
             assertEquals(0, results.size());
         }
     }
@@ -252,7 +252,7 @@ public class RepositorySteps {
 
     @Then("listing all envelopes should show exactly {int} envelope(s)")
     public void listingAllEnvelopesShouldShow(int count) {
-        List<Envelope> results = world.repository.list(world.tokens);
+        List<Envelope> results = world.repository.list(world.session);
         assertEquals(count, results.size());
     }
 

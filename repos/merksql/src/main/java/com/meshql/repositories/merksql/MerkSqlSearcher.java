@@ -1,8 +1,9 @@
 package com.meshql.repositories.merksql;
 
 import com.github.jknack.handlebars.Template;
-import com.meshql.core.Auth;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
+import com.meshql.core.Operation;
 import com.meshql.core.Searcher;
 import com.tailoredshapes.stash.Stash;
 import org.slf4j.Logger;
@@ -22,11 +23,14 @@ public class MerkSqlSearcher implements Searcher {
     private static final Logger logger = LoggerFactory.getLogger(MerkSqlSearcher.class);
 
     private final Map<String, List<Envelope>> db;
-    private final Auth authorizer;
 
-    public MerkSqlSearcher(MerkSqlStore store, Auth authorizer) {
+    public MerkSqlSearcher(MerkSqlStore store) {
         this.db = store.getDb();
-        this.authorizer = authorizer;
+    }
+
+    /** A missing session is never an internal call. It is a caller who may see nothing. */
+    private static boolean allows(AuthSession session, Envelope envelope) {
+        return session != null && session.isAuthorized(Operation.READ, envelope);
     }
 
     private String processQueryTemplate(Stash parameters, Template queryTemplate) {
@@ -88,7 +92,7 @@ public class MerkSqlSearcher implements Searcher {
     }
 
     @Override
-    public Stash find(Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+    public Stash find(Template queryTemplate, Stash args, AuthSession session, long timestamp) {
         String query = processQueryTemplate(args, queryTemplate);
 
         try {
@@ -96,7 +100,7 @@ public class MerkSqlSearcher implements Searcher {
 
             Optional<Envelope> match = latestVersions.stream()
                     .filter(envelope -> matchesQuery(envelope, query))
-                    .filter(envelope -> authorizer.isAuthorized(tokens, envelope))
+                    .filter(envelope -> allows(session, envelope))
                     .findFirst();
 
             if (match.isPresent()) {
@@ -117,7 +121,7 @@ public class MerkSqlSearcher implements Searcher {
     }
 
     @Override
-    public List<Stash> findAll(Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+    public List<Stash> findAll(Template queryTemplate, Stash args, AuthSession session, long timestamp) {
         String query = processQueryTemplate(args, queryTemplate);
 
         int limit = -1;
@@ -130,7 +134,7 @@ public class MerkSqlSearcher implements Searcher {
 
             java.util.stream.Stream<Stash> stream = latestVersions.stream()
                     .filter(envelope -> matchesQuery(envelope, query))
-                    .filter(envelope -> authorizer.isAuthorized(tokens, envelope))
+                    .filter(envelope -> allows(session, envelope))
                     .map(envelope -> {
                         Stash payload = envelope.payload();
                         if (payload != null) {

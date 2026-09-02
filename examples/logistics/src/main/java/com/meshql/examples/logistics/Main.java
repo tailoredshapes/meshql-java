@@ -121,7 +121,7 @@ public class Main {
 
         // Register plugins
         Map<String, Plugin> plugins = new HashMap<>();
-        plugins.put("mongo", new MongoPlugin(auth));
+        plugins.put("mongo", new MongoPlugin());
 
         logger.info("Initializing server on port {}", port);
 

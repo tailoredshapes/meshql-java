@@ -2,7 +2,6 @@ package com.meshql.repos.sqlite;
 
 import com.github.jknack.handlebars.Handlebars;
 import com.github.jknack.handlebars.Template;
-import com.meshql.core.Auth;
 import com.meshql.repositories.rdbms.RDBMSSearcher;
 
 import javax.sql.DataSource;
@@ -17,8 +16,7 @@ public class SQLiteSearcher extends RDBMSSearcher {
             "        WHERE {{{filters}}}\n" +
             "         AND created_at <= {{_createdAt}}\n" +
             "         AND deleted = 0\n" +
-            "        ORDER BY created_at DESC\n" +
-            "        LIMIT 1"));
+            "        ORDER BY created_at DESC"));
 
     /**
      * SQL template for finding multiple records.
@@ -38,10 +36,10 @@ public class SQLiteSearcher extends RDBMSSearcher {
             "        JOIN latest t2\n" +
             "        ON t1.id = t2.id\n" +
             "        AND t1.created_at = t2.max_created_at\n" +
-            "        WHERE t1.deleted = 0{{#if _limit}}\n        LIMIT {{_limit}}{{/if}}"));
+            "        WHERE t1.deleted = 0"));
 
-    public SQLiteSearcher(DataSource dataSource, String tableName, Auth authorizer) {
+    public SQLiteSearcher(DataSource dataSource, String tableName) {
         // SQLite uses INTEGER for timestamps (milliseconds), so no precision adjustment needed
-        super(SINGLETON_QUERY_TEMPLATE, VECTOR_QUERY_TEMPLATE, dataSource, tableName, authorizer, (t) -> t);
+        super(SINGLETON_QUERY_TEMPLATE, VECTOR_QUERY_TEMPLATE, dataSource, tableName, (t) -> t);
     }
 }

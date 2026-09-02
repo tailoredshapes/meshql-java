@@ -61,7 +61,7 @@ public class FarmSteps {
 
             // Create entity via Repository
             Envelope envelope = new Envelope(null, payload, null, false, null);
-            Envelope created = repository.create(envelope, Collections.emptyList());
+            Envelope created = repository.create(envelope, FarmWorld.SESSION);
 
             // Store ID in env (persistent across scenarios)
             world.env.ids.get(entityType).put(name, created.id());
@@ -93,7 +93,7 @@ public class FarmSteps {
 
             // Create new version via Repository
             Envelope envelope = new Envelope(id, payload, null, false, null);
-            repository.create(envelope, Collections.emptyList());
+            repository.create(envelope, FarmWorld.SESSION);
 
             logger.debug("Updated {} '{}' (ID: {})", entityType, name, id);
         }

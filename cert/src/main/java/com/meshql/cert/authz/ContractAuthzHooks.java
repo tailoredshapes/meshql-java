@@ -62,7 +62,14 @@ public abstract class ContractAuthzHooks {
      */
     protected abstract ContractAuthzBackend freshBackend() throws Exception;
 
-    /** Stand up this scenario's store and server. */
+    /**
+     * Stand up this scenario's store, and everything the server will need.
+     *
+     * <p>The server itself is started from a step, not from here, because which
+     * auth plugin it runs is what the scenario is about: {@code authz.feature}
+     * wants the one the server resolves from configuration, and
+     * {@code auth_plugin.feature} names its own.
+     */
     public void startScenario() throws Exception {
         if (schemaFile == null) {
             schemaFile = ContractAuthzEnv.writeSchemaFile();
@@ -75,11 +82,11 @@ public abstract class ContractAuthzHooks {
         plugins.put(backend.storage().type, backend.plugin());
 
         // Creating the repository is also what creates the table, collection or
-        // stream, so it happens before the server takes its first request. The null
-        // Auth is deliberate: this handle is the certification's window onto storage,
-        // and it opens that window with the wildcard token rather than by holding an
-        // Auth of its own. See ContractAuthzSteps.SYSTEM_TOKENS.
-        world.repository = backend.plugin().createRepository(backend.storage(), null);
+        // stream, so it happens before the server takes its first request. The
+        // repository holds no Auth: it is the certification's window onto storage,
+        // and every call through it names the session it is making. See
+        // ContractAuthzSteps.SYSTEM.
+        world.repository = backend.plugin().createRepository(backend.storage());
 
         world.env = new ContractAuthzEnv(
                 ContractAuthzEnv.freePort(),
@@ -88,7 +95,6 @@ public abstract class ContractAuthzHooks {
                 backend.queries(),
                 casbinParams);
         world.plugins = plugins;
-        world.server = world.env.buildService(plugins);
 
         world.ids.clear();
         world.stamps.clear();
@@ -96,16 +102,12 @@ public abstract class ContractAuthzHooks {
         world.temporalResult = null;
         world.deleteStatus = null;
 
-        logger.debug("Contract authorization scenario ready on port {}", world.env.getPort());
+        logger.debug("Contract authorization scenario prepared on port {}", world.env.getPort());
     }
 
     /** Tear this scenario's server down so the next scenario starts clean. */
     public void stopScenario() throws Exception {
-        if (world.server != null) {
-            // Server.stop() also cleans up the plugins it was given.
-            world.server.getClass().getMethod("stop").invoke(world.server);
-            world.server = null;
-        }
+        world.stopServer();
         world.repository = null;
         world.env = null;
     }

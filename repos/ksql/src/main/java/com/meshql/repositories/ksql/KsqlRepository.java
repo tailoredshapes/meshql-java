@@ -1,8 +1,10 @@
 package com.meshql.repositories.ksql;
 
 import com.fasterxml.uuid.Generators;
-import com.meshql.core.Auth;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
+import com.meshql.core.NotAuthorizedException;
+import com.meshql.core.Operation;
 import com.meshql.core.Repository;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -35,33 +37,21 @@ public class KsqlRepository implements Repository {
     private final String bootstrapServers;
     private final String topic;
     private final String tableName;
-    private final Auth auth;
 
     public KsqlRepository(KafkaProducer<String, String> producer,
                            KsqlHttpClient ksqlClient,
                            String bootstrapServers,
-                           String topic,
-                           Auth auth) {
+                           String topic) {
         this.producer = producer;
         this.ksqlClient = ksqlClient;
         this.bootstrapServers = bootstrapServers;
         this.topic = topic;
         this.tableName = topic.replace("-", "_") + "_table";
-        this.auth = auth;
     }
 
-    /**
-     * Whether the caller is entitled to see this envelope.
-     *
-     * <p>Delegates to the configured Auth so a deployment's own rule applies, and
-     * falls back to {@link Auth#tokensVisibleTo} when the repository was built
-     * without one. The fallback used to be an unconditional yes, so a repository
-     * handle built with a null Auth read every record regardless of tokens.
-     */
-    private boolean visibleTo(Envelope envelope, List<String> tokens) {
-        return auth != null
-                ? auth.isAuthorized(tokens, envelope)
-                : Auth.tokensVisibleTo(envelope.authorizedTokens(), tokens);
+    /** A missing session is never an internal call. It is a caller who may see nothing. */
+    private static boolean allows(AuthSession session, Operation operation, Envelope envelope) {
+        return session != null && session.isAuthorized(operation, envelope);
     }
 
     public void initialize(int partitions, int replicationFactor) {
@@ -112,11 +102,18 @@ public class KsqlRepository implements Repository {
     }
 
     @Override
-    public Envelope create(Envelope envelope, List<String> tokens) {
+    public Envelope create(Envelope envelope, AuthSession session) {
+        if (session == null) {
+            throw new NotAuthorizedException("A write needs a session; there is no unset session");
+        }
         String id = envelope.id() != null ? envelope.id() : Generators.timeBasedGenerator().generate().toString();
         Instant createdAt = Instant.now();
 
-        Envelope newEnvelope = new Envelope(id, envelope.payload(), createdAt, false, tokens);
+        Envelope newEnvelope = session.stamp(
+                new Envelope(id, envelope.payload(), createdAt, false, envelope.auth()));
+        if (!session.isAuthorized(Operation.CREATE, newEnvelope)) {
+            throw new NotAuthorizedException("Not authorized to create " + id);
+        }
 
         try {
             String json = envelopeToJson(newEnvelope);
@@ -131,7 +128,12 @@ public class KsqlRepository implements Repository {
     }
 
     @Override
-    public Optional<Envelope> read(String id, List<String> tokens, Instant createdAt) {
+    public Optional<Envelope> read(String id, AuthSession session, Instant createdAt) {
+        return latestAt(id, createdAt).filter(e -> allows(session, Operation.READ, e));
+    }
+
+    /** The latest live version of an id at an instant, before anyone is asked about it. */
+    private Optional<Envelope> latestAt(String id, Instant createdAt) {
         if (createdAt == null) {
             createdAt = Instant.now();
         }
@@ -162,7 +164,7 @@ public class KsqlRepository implements Repository {
                 return Optional.empty();
             }
 
-            return latest.filter(e -> visibleTo(e, tokens));
+            return latest;
         } catch (Exception e) {
             logger.error("Error reading document: {}", e.getMessage(), e);
             return Optional.empty();
@@ -170,7 +172,7 @@ public class KsqlRepository implements Repository {
     }
 
     @Override
-    public List<Envelope> list(List<String> tokens) {
+    public List<Envelope> list(AuthSession session) {
         try {
             String query = String.format(
                     "SELECT * FROM %s WHERE deleted = false;", tableName);
@@ -185,7 +187,7 @@ public class KsqlRepository implements Repository {
                                 return rowToEnvelope(id, row);
                             })
                             .filter(e -> !e.deleted())
-                            .filter(e -> visibleTo(e, tokens))
+                            .filter(e -> allows(session, Operation.READ, e))
                             .collect(Collectors.toList());
                 }
                 Thread.sleep(POLL_INTERVAL_MS);
@@ -201,9 +203,10 @@ public class KsqlRepository implements Repository {
     }
 
     @Override
-    public Boolean remove(String id, List<String> tokens) {
+    public Boolean remove(String id, AuthSession session) {
         try {
-            Optional<Envelope> existing = read(id, tokens, null);
+            Optional<Envelope> existing = latestAt(id, null)
+                    .filter(e -> allows(session, Operation.REMOVE, e));
             if (existing.isEmpty()) {
                 return false;
             }
@@ -213,7 +216,7 @@ public class KsqlRepository implements Repository {
                     existing.get().payload(),
                     Instant.now(),
                     true,
-                    existing.get().authorizedTokens());
+                    existing.get().auth());
 
             String json = envelopeToJson(deleted);
             producer.send(new ProducerRecord<>(topic, id, json)).get();
@@ -226,14 +229,21 @@ public class KsqlRepository implements Repository {
     }
 
     @Override
-    public List<Envelope> createMany(List<Envelope> envelopes, List<String> tokens) {
+    public List<Envelope> createMany(List<Envelope> envelopes, AuthSession session) {
+        if (session == null) {
+            throw new NotAuthorizedException("A write needs a session; there is no unset session");
+        }
         Instant createdAt = Instant.now();
         List<Envelope> created = new ArrayList<>();
         List<Future<?>> futures = new ArrayList<>();
 
         for (Envelope envelope : envelopes) {
             String id = UUID.randomUUID().toString();
-            Envelope newEnvelope = new Envelope(id, envelope.payload(), createdAt, false, tokens);
+            Envelope newEnvelope = session.stamp(
+                    new Envelope(id, envelope.payload(), createdAt, false, envelope.auth()));
+            if (!session.isAuthorized(Operation.CREATE, newEnvelope)) {
+                throw new NotAuthorizedException("Not authorized to create " + id);
+            }
             created.add(newEnvelope);
 
             String json = envelopeToJson(newEnvelope);
@@ -290,19 +300,19 @@ public class KsqlRepository implements Repository {
     }
 
     @Override
-    public List<Envelope> readMany(List<String> ids, List<String> tokens) {
+    public List<Envelope> readMany(List<String> ids, AuthSession session) {
         List<Envelope> results = new ArrayList<>();
         for (String id : ids) {
-            read(id, tokens, null).ifPresent(results::add);
+            read(id, session, null).ifPresent(results::add);
         }
         return results;
     }
 
     @Override
-    public Map<String, Boolean> removeMany(List<String> ids, List<String> tokens) {
+    public Map<String, Boolean> removeMany(List<String> ids, AuthSession session) {
         Map<String, Boolean> results = new LinkedHashMap<>();
         for (String id : ids) {
-            results.put(id, remove(id, tokens));
+            results.put(id, remove(id, session));
         }
         return results;
     }

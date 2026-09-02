@@ -2,8 +2,9 @@ package com.meshql.repositories.rdbms;
 
 import com.github.jknack.handlebars.Handlebars;
 import com.github.jknack.handlebars.Template;
-import com.meshql.core.Auth;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
+import com.meshql.core.Operation;
 import com.meshql.core.Searcher;
 import com.tailoredshapes.stash.Stash;
 import org.slf4j.Logger;
@@ -18,6 +19,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.meshql.repositories.rdbms.Converters.resultSetToEnvelope;
 import static com.tailoredshapes.stash.Stash.stash;
@@ -35,7 +37,6 @@ public abstract class RDBMSSearcher implements Searcher {
 
     private final DataSource dataSource;
     private final String tableName;
-    private final Auth authorizer;
     private final Function<Long, ?> timeFunc;
 
     private final Template SINGLETON_QUERY_TEMPLATE;
@@ -43,13 +44,17 @@ public abstract class RDBMSSearcher implements Searcher {
     private final Template VECTOR_QUERY_TEMPLATE;
 
 
-    public RDBMSSearcher(Template singletonTemplate, Template vectorTemplate, DataSource dataSource, String tableName, Auth authorizer, Function<Long, ?> timeFunc) {
+    public RDBMSSearcher(Template singletonTemplate, Template vectorTemplate, DataSource dataSource, String tableName, Function<Long, ?> timeFunc) {
         this.SINGLETON_QUERY_TEMPLATE = singletonTemplate;
         this.VECTOR_QUERY_TEMPLATE = vectorTemplate;
         this.dataSource = dataSource;
         this.tableName = tableName;
-        this.authorizer = authorizer;
         this.timeFunc = timeFunc;
+    }
+
+    /** A missing session is never an internal call. It is a caller who may see nothing. */
+    private static boolean allows(AuthSession session, Envelope envelope) {
+        return session != null && session.isAuthorized(Operation.READ, envelope);
     }
 
     /**
@@ -86,7 +91,7 @@ public abstract class RDBMSSearcher implements Searcher {
     }
 
     @Override
-    public Stash find(Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+    public Stash find(Template queryTemplate, Stash args, AuthSession session, long timestamp) {
         String filters = processQueryTemplate(args, queryTemplate);
         String sql = processQueryTemplate(stash("_name", tableName, "filters", filters, "_createdAt", timeFunc.apply(timestamp)), SINGLETON_QUERY_TEMPLATE);
 
@@ -96,18 +101,18 @@ public abstract class RDBMSSearcher implements Searcher {
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
+                // Fetch, then ask. The rows come back newest first, so the first the
+                // session allows is the answer. Stopping at the first row instead
+                // would let one unreadable record hide a readable one behind it.
+                while (rs.next()) {
                     Envelope envelope = resultSetToEnvelope(rs);
-
-                    if (authorizer.isAuthorized(tokens, envelope)) {
+                    if (allows(session, envelope)) {
                         Stash payload = envelope.payload();
                         if (payload != null) {
                             payload.put("id", envelope.id());
                             payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
                             return payload;
                         }
-                    } else {
-                        logger.trace("Not authorized to access document");
                     }
                 }
             }
@@ -119,13 +124,18 @@ public abstract class RDBMSSearcher implements Searcher {
     }
 
     @Override
-    public List<Stash> findAll(Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+    public List<Stash> findAll(Template queryTemplate, Stash args, AuthSession session, long timestamp) {
         String filters = processQueryTemplate(args, queryTemplate);
 
         Stash context = stash("_name", tableName, "filters", filters, "_createdAt", timeFunc.apply(timestamp));
+
+        // The limit is deliberately not pushed into the SQL. It has to truncate the
+        // authorized rows, not the fetched ones: a LIMIT applied first returns fewer
+        // rows than the caller asked for and calls that the answer.
+        int limit = -1;
         Object limitObj = args.get("limit");
         if (limitObj instanceof Number) {
-            context.put("_limit", String.valueOf(((Number) limitObj).intValue()));
+            limit = ((Number) limitObj).intValue();
         }
 
         String sql = processQueryTemplate(context, VECTOR_QUERY_TEMPLATE);
@@ -141,8 +151,8 @@ public abstract class RDBMSSearcher implements Searcher {
                     envelopes.add(resultSetToEnvelope(rs));
                 }
 
-                return envelopes.stream()
-                        .filter(envelope -> authorizer.isAuthorized(tokens, envelope))
+                Stream<Stash> results = envelopes.stream()
+                        .filter(envelope -> allows(session, envelope))
                         .map(envelope -> {
                             Stash payload = envelope.payload();
                             if (payload != null) {
@@ -152,8 +162,13 @@ public abstract class RDBMSSearcher implements Searcher {
                             }
                             return null;
                         })
-                        .filter(payload -> payload != null)
-                        .collect(Collectors.toList());
+                        .filter(payload -> payload != null);
+
+                if (limit > 0) {
+                    results = results.limit(limit);
+                }
+
+                return results.collect(Collectors.toList());
             }
         } catch (SQLException e) {
             logger.error("Error executing findAll query: {}", e.getMessage(), e);

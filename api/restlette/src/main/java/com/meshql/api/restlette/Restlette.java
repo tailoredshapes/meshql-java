@@ -38,9 +38,9 @@ public class Restlette extends HttpServlet {
         var port = rc.port();
 
         Plugin plugin = storageFactory.get(rc.storage().type);
-        Repository repo = plugin.createRepository(rc.storage(), auth);
+        Repository repo = plugin.createRepository(rc.storage());
 
-        this.crudHandler = new CrudHandler(auth, repo, validator, rc.tokens());
+        this.crudHandler = new CrudHandler(auth, repo, validator);
         this.swaggerUIHandler = new SwaggerUIHandler(apiPath);
 
         // Create Swagger document

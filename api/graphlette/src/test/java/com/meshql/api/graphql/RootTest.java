@@ -1,5 +1,7 @@
 package com.meshql.api.graphql;
 
+import com.meshql.auth.token.TokenSession;
+
 import com.meshql.core.config.QueryConfig;
 import com.meshql.core.config.VectorResolverConfig;
 import com.meshql.core.config.RootConfig;
@@ -55,7 +57,7 @@ class RootTest {
     @Test
     void testSingletonQuery() throws Exception {
         // Setup mocks
-        when(authorizer.getAuthToken(any())).thenReturn(list("test-token"));
+        when(authorizer.authenticate(any())).thenReturn(new TokenSession(list("test-token")));
         
         Stash mockResult = stash("id", "123", "name", "Test User");
         when(searcher.find(any(), any(), any(), anyLong()))
@@ -85,7 +87,7 @@ class RootTest {
     @Test
     void testVectorQuery() throws Exception {
         // Setup mocks
-        when(authorizer.getAuthToken(any())).thenReturn(list("test-token"));
+        when(authorizer.authenticate(any())).thenReturn(new TokenSession(list("test-token")));
         
         List<Stash> mockResults = list(
             stash("id", "123", "name", "User 1"),
@@ -119,7 +121,7 @@ class RootTest {
     @Test
     void testTimestampHandling() throws Exception {
         // Setup mocks
-        when(authorizer.getAuthToken(any())).thenReturn(list("test-token"));
+        when(authorizer.authenticate(any())).thenReturn(new TokenSession(list("test-token")));
         
         Stash mockResult = stash("id", "123", "name", "Test User");
         when(searcher.find(any(), any(), any(), eq(123456789L)))

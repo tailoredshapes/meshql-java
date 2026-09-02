@@ -31,13 +31,11 @@ public class KsqlSearcherCertificationTest extends SearcherCertification {
 
         String topic = "test_search_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
 
-        Auth noOpAuth = new NoAuth();
-
-        KsqlRepository ksqlRepository = new KsqlRepository(producer, ksqlClient, KsqlTestEnvironment.getBootstrapServers(), topic, noOpAuth);
+        KsqlRepository ksqlRepository = new KsqlRepository(producer, ksqlClient, KsqlTestEnvironment.getBootstrapServers(), topic);
         ksqlRepository.initialize(1, 1);
 
         this.repository = ksqlRepository;
-        this.searcher = new KsqlSearcher(ksqlClient, topic, noOpAuth);
+        this.searcher = new KsqlSearcher(ksqlClient, topic);
         this.templates = createTemplates();
 
         logger.info("Initialized ksqlDB searcher with topic: {}", topic);

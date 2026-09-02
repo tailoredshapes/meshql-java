@@ -71,7 +71,7 @@ public class MongoContractAuthzHooks extends ContractAuthzHooks {
         storage.collection = "widget_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
 
         return new ContractAuthzBackend(
-                new MongoPlugin(new NoAuth()),
+                new MongoPlugin(),
                 storage,
                 ContractAuthzQueries.mongoQueries());
     }

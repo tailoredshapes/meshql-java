@@ -13,9 +13,12 @@ public class IntegrationWorld {
     // Configuration (provided by test implementation)
     public Plugin plugin;
     public StorageConfig storageConfig;
-    public Auth auth;
     public SearcherTestTemplates templates;
-    public List<String> tokens;
+    /**
+     * The caller every scenario runs as. There is no unset session: a suite that
+     * left this null would be asserting against a caller entitled to nothing.
+     */
+    public AuthSession session;
 
     // Test state
     public Repository repository;

@@ -48,7 +48,7 @@ public class KsqlContractAuthzHooks extends ContractAuthzHooks {
         KsqlConfig storage = KsqlTestEnvironment.createConfig(topic);
 
         return new ContractAuthzBackend(
-                new KsqlPlugin(new NoAuth()),
+                new KsqlPlugin(),
                 storage,
                 ContractAuthzQueries.ksqlQueries());
     }

@@ -1,7 +1,11 @@
 package com.meshql.auth.casbin;
 
-import com.meshql.core.Auth;
+import com.meshql.auth.token.Identity;
+import com.meshql.auth.token.TokenMark;
+import com.meshql.auth.token.TokenSession;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
+import com.meshql.core.Operation;
 import com.tailoredshapes.stash.Stash;
 import org.casbin.jcasbin.main.Enforcer;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,13 +22,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for CasbinAuth
+ * Unit tests for CasbinAuth.
  */
 @ExtendWith(MockitoExtension.class)
 class CasbinAuthTest {
 
     @Mock
-    private Auth mockWrappedAuth;
+    private Identity mockIdentity;
 
     private Enforcer enforcer;
     private CasbinAuth casbinAuth;
@@ -36,126 +40,111 @@ class CasbinAuthTest {
         String policyPath = getClass().getClassLoader().getResource("policy.csv").getPath();
 
         enforcer = new Enforcer(modelPath, policyPath);
-        casbinAuth = new CasbinAuth(enforcer, mockWrappedAuth);
+        casbinAuth = new CasbinAuth(enforcer, mockIdentity);
     }
 
-    // ==================== getAuthToken tests ====================
+    /** The tokens the session resolved for the caller. */
+    private List<String> tokensOf(AuthSession session) {
+        return ((TokenSession) session).tokens();
+    }
+
+    private Envelope marked(List<String> tokens) {
+        return new Envelope("id", new Stash(), Instant.now(), false, TokenMark.of(tokens));
+    }
+
+    // ==================== authenticate tests ====================
 
     @Test
-    void getAuthToken_shouldReturnRoles_forUserWithRoles() {
+    void authenticate_shouldReturnRoles_forUserWithRoles() {
         // user1 has role 'admin' in policy.csv
-        when(mockWrappedAuth.getAuthToken(any())).thenReturn(List.of("user1"));
+        when(mockIdentity.resolve(any())).thenReturn(List.of("user1"));
 
-        List<String> roles = casbinAuth.getAuthToken(new Stash());
+        List<String> roles = tokensOf(casbinAuth.authenticate(new Stash()));
 
         assertEquals(1, roles.size());
         assertTrue(roles.contains("admin"));
     }
 
     @Test
-    void getAuthToken_shouldReturnEditorRole_forUser2() {
+    void authenticate_shouldReturnEditorRole_forUser2() {
         // user2 has role 'editor' in policy.csv
-        when(mockWrappedAuth.getAuthToken(any())).thenReturn(List.of("user2"));
+        when(mockIdentity.resolve(any())).thenReturn(List.of("user2"));
 
-        List<String> roles = casbinAuth.getAuthToken(new Stash());
+        List<String> roles = tokensOf(casbinAuth.authenticate(new Stash()));
 
         assertEquals(1, roles.size());
         assertTrue(roles.contains("editor"));
     }
 
     @Test
-    void getAuthToken_shouldReturnViewerRole_forUser3() {
+    void authenticate_shouldReturnViewerRole_forUser3() {
         // user3 has role 'viewer' in policy.csv
-        when(mockWrappedAuth.getAuthToken(any())).thenReturn(List.of("user3"));
+        when(mockIdentity.resolve(any())).thenReturn(List.of("user3"));
 
-        List<String> roles = casbinAuth.getAuthToken(new Stash());
+        List<String> roles = tokensOf(casbinAuth.authenticate(new Stash()));
 
         assertEquals(1, roles.size());
         assertTrue(roles.contains("viewer"));
     }
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_whenWrappedAuthReturnsEmpty() {
-        when(mockWrappedAuth.getAuthToken(any())).thenReturn(List.of());
+    void authenticate_shouldReturnEmptyList_whenIdentityReturnsEmpty() {
+        when(mockIdentity.resolve(any())).thenReturn(List.of());
 
-        List<String> roles = casbinAuth.getAuthToken(new Stash());
-
-        assertTrue(roles.isEmpty());
+        assertTrue(tokensOf(casbinAuth.authenticate(new Stash())).isEmpty());
     }
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_whenWrappedAuthReturnsNull() {
-        when(mockWrappedAuth.getAuthToken(any())).thenReturn(null);
+    void authenticate_shouldReturnEmptyList_whenIdentityReturnsNull() {
+        when(mockIdentity.resolve(any())).thenReturn(null);
 
-        List<String> roles = casbinAuth.getAuthToken(new Stash());
-
-        assertTrue(roles.isEmpty());
+        assertTrue(tokensOf(casbinAuth.authenticate(new Stash())).isEmpty());
     }
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_forUnknownUser() {
+    void authenticate_shouldReturnEmptyList_forUnknownUser() {
         // unknown-user has no roles in policy.csv
-        when(mockWrappedAuth.getAuthToken(any())).thenReturn(List.of("unknown-user"));
+        when(mockIdentity.resolve(any())).thenReturn(List.of("unknown-user"));
 
-        List<String> roles = casbinAuth.getAuthToken(new Stash());
-
-        assertTrue(roles.isEmpty());
+        assertTrue(tokensOf(casbinAuth.authenticate(new Stash())).isEmpty());
     }
 
     // ==================== isAuthorized tests ====================
 
     @Test
-    void isAuthorized_shouldReturnTrue_whenAuthorizedTokensIsNull() {
+    void isAuthorized_shouldReturnTrue_whenTheEnvelopeCarriesNoMark() {
         Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, null);
 
-        boolean result = casbinAuth.isAuthorized(List.of("admin"), envelope);
-
-        assertTrue(result);
+        assertTrue(new TokenSession(List.of("admin")).isAuthorized(Operation.READ, envelope));
     }
 
     @Test
-    void isAuthorized_shouldReturnTrue_whenAuthorizedTokensIsEmpty() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of());
-
-        boolean result = casbinAuth.isAuthorized(List.of("admin"), envelope);
-
-        assertTrue(result);
+    void isAuthorized_shouldReturnTrue_whenTheMarkIsEmpty() {
+        assertTrue(new TokenSession(List.of("admin")).isAuthorized(Operation.READ, marked(List.of())));
     }
 
     @Test
-    void isAuthorized_shouldReturnTrue_whenRoleMatchesAuthorizedTokens() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of("admin", "editor"));
-
-        boolean result = casbinAuth.isAuthorized(List.of("admin"), envelope);
-
-        assertTrue(result);
+    void isAuthorized_shouldReturnTrue_whenRoleMatchesTheMark() {
+        assertTrue(new TokenSession(List.of("admin"))
+                .isAuthorized(Operation.READ, marked(List.of("admin", "editor"))));
     }
 
     @Test
     void isAuthorized_shouldReturnTrue_whenAnyRoleMatches() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of("admin", "editor"));
-
-        boolean result = casbinAuth.isAuthorized(List.of("viewer", "editor"), envelope);
-
-        assertTrue(result);
+        assertTrue(new TokenSession(List.of("viewer", "editor"))
+                .isAuthorized(Operation.READ, marked(List.of("admin", "editor"))));
     }
 
     @Test
     void isAuthorized_shouldReturnFalse_whenNoRoleMatches() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of("admin", "editor"));
-
-        boolean result = casbinAuth.isAuthorized(List.of("viewer"), envelope);
-
-        assertFalse(result);
+        assertFalse(new TokenSession(List.of("viewer"))
+                .isAuthorized(Operation.READ, marked(List.of("admin", "editor"))));
     }
 
     @Test
-    void isAuthorized_shouldReturnFalse_whenCredentialsIsEmpty() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of("admin"));
-
-        boolean result = casbinAuth.isAuthorized(List.of(), envelope);
-
-        assertFalse(result);
+    void isAuthorized_shouldReturnFalse_whenTheCallerHoldsNoTokens() {
+        assertFalse(new TokenSession(List.of())
+                .isAuthorized(Operation.READ, marked(List.of("admin"))));
     }
 
     // ==================== Factory method tests ====================
@@ -165,7 +154,7 @@ class CasbinAuthTest {
         String modelPath = getClass().getClassLoader().getResource("model.conf").getPath();
         String policyPath = getClass().getClassLoader().getResource("policy.csv").getPath();
 
-        CasbinAuth auth = CasbinAuth.create(modelPath, policyPath, mockWrappedAuth);
+        CasbinAuth auth = CasbinAuth.create(modelPath, policyPath, mockIdentity);
 
         assertNotNull(auth);
         assertNotNull(auth.getEnforcer());
@@ -175,5 +164,11 @@ class CasbinAuthTest {
     void getEnforcer_shouldReturnEnforcer() {
         assertNotNull(casbinAuth.getEnforcer());
         assertEquals(enforcer, casbinAuth.getEnforcer());
+    }
+
+    @Test
+    void systemSession_shouldSeeEverything() {
+        assertTrue(casbinAuth.systemSession()
+                .isAuthorized(Operation.READ, marked(List.of("nobody-holds-this"))));
     }
 }

@@ -30,7 +30,7 @@ public class KsqlPluginHooks extends Hooks {
 
             KsqlConfig config = KsqlTestEnvironment.createConfig(topic);
             this.world.storageConfig = config;
-            this.world.plugin = new KsqlPlugin(this.world.auth);
+            this.world.plugin = new KsqlPlugin();
 
             // Set up ksqlDB query templates
             Handlebars handlebars = new Handlebars();

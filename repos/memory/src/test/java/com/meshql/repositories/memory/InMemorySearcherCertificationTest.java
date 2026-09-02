@@ -17,7 +17,7 @@ public class InMemorySearcherCertificationTest extends SearcherCertification {
         Auth noAuth = new NoAuth();
 
         this.repository = new InMemoryRepository(store);
-        this.searcher = new InMemorySearcher(store, noAuth);
+        this.searcher = new InMemorySearcher(store);
         this.templates = createTemplates();
     }
 

@@ -75,12 +75,16 @@ public class ApostropheInQueryTemplateTest {
         repository.initialize();
 
         Auth noAuth = new NoAuth();
-        searcher = new PostgresSearcher(dataSource, tableName, noAuth);
+        searcher = new PostgresSearcher(dataSource, tableName);
     }
 
     private Template findByName() {
         return searcher.compileQuery("payload->>'name' = '{{name}}'");
     }
+
+    /** The caller these scenarios run as: an ordinary token holder. */
+    private static final com.meshql.core.AuthSession SESSION =
+            new com.meshql.auth.token.TokenSession(list("TOKEN"));
 
     @Test
     public void templateEscapesApostropheForSqlNotForHtml() {
@@ -96,10 +100,10 @@ public class ApostropheInQueryTemplateTest {
     @Test
     public void searcherFindsAValueContainingAnApostrophe() {
         repository.create(
-                new Envelope(null, stash("name", "O'Brien", "type", "person"), null, false, list()),
-                list());
+                new Envelope(null, stash("name", "O'Brien", "type", "person"), null, false, null),
+                SESSION);
 
-        Stash found = searcher.find(findByName(), stash("name", "O'Brien"), list(),
+        Stash found = searcher.find(findByName(), stash("name", "O'Brien"), SESSION,
                 Instant.now().toEpochMilli());
 
         System.out.println("[apostrophe-pg] singleton result: " + found);
@@ -111,16 +115,16 @@ public class ApostropheInQueryTemplateTest {
 
     @Test
     public void searcherFindsAllValuesContainingAnApostrophe() {
-        repository.create(new Envelope(null, stash("name", "O'Brien", "type", "irish'sur"), null, false, list()),
-                list());
-        repository.create(new Envelope(null, stash("name", "O'Connor", "type", "irish'sur"), null, false, list()),
-                list());
-        repository.create(new Envelope(null, stash("name", "Smith", "type", "plain"), null, false, list()),
-                list());
+        repository.create(new Envelope(null, stash("name", "O'Brien", "type", "irish'sur"), null, false, null),
+                SESSION);
+        repository.create(new Envelope(null, stash("name", "O'Connor", "type", "irish'sur"), null, false, null),
+                SESSION);
+        repository.create(new Envelope(null, stash("name", "Smith", "type", "plain"), null, false, null),
+                SESSION);
 
         Template findAllByType = searcher.compileQuery("payload->>'type' = '{{type}}'");
 
-        List<Stash> found = searcher.findAll(findAllByType, stash("type", "irish'sur"), list(),
+        List<Stash> found = searcher.findAll(findAllByType, stash("type", "irish'sur"), SESSION,
                 Instant.now().toEpochMilli());
 
         System.out.println("[apostrophe-pg] vector result size: " + found.size() + " -> " + found);
@@ -132,11 +136,11 @@ public class ApostropheInQueryTemplateTest {
     public void searcherFindsValuesContainingAmpersandsAndAngleBrackets() {
         List<String> names = List.of("Tom & Jerry", "a<b", "a>b", "say \"hi\"", "a\\b");
         for (String name : names) {
-            repository.create(new Envelope(null, stash("name", name), null, false, list()), list());
+            repository.create(new Envelope(null, stash("name", name), null, false, null), SESSION);
         }
 
         for (String name : names) {
-            Stash found = searcher.find(findByName(), stash("name", name), list(),
+            Stash found = searcher.find(findByName(), stash("name", name), SESSION,
                     Instant.now().toEpochMilli());
             System.out.println("[apostrophe-pg] lookup " + name + " -> " + found);
             assertFalse(found.isEmpty(), "Searching for '" + name + "' returned nothing");
@@ -149,7 +153,7 @@ public class ApostropheInQueryTemplateTest {
      */
     @Test
     public void aQuoteInAValueStillCannotEndTheLiteral() {
-        repository.create(new Envelope(null, stash("name", "Smith"), null, false, list()), list());
+        repository.create(new Envelope(null, stash("name", "Smith"), null, false, null), SESSION);
 
         String breakout = "' OR 1=1 --";
 
@@ -157,7 +161,7 @@ public class ApostropheInQueryTemplateTest {
         System.out.println("[apostrophe-pg] breakout attempt renders as: " + rendered);
         assertEquals("payload->>'name' = ''' OR 1=1 --'", rendered);
 
-        Stash found = searcher.find(findByName(), stash("name", breakout), list(),
+        Stash found = searcher.find(findByName(), stash("name", breakout), SESSION,
                 Instant.now().toEpochMilli());
 
         System.out.println("[apostrophe-pg] breakout attempt result: " + found);

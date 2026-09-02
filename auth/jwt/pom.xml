@@ -16,6 +16,13 @@
     <dependencies>
         <dependency>
             <groupId>com.tailoredshapes</groupId>
+            <artifactId>token</artifactId>
+            <version>0.2.0</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
             <artifactId>core</artifactId>
             <version>0.2.0</version>
             <scope>compile</scope>

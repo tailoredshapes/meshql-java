@@ -127,33 +127,10 @@
         </dependency>
     </dependencies>
 
-    <build>
-        <plugins>
-            <!-- Skip tests by default — requires Docker for Kafka + ksqlDB testcontainers -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <skipTests>true</skipTests>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
-
-    <profiles>
-        <profile>
-            <id>ksql-tests</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <skipTests>false</skipTests>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
+    <!--
+        These tests run by default. They need Docker, for the Kafka and ksqlDB
+        testcontainers. They used to be skipped by default while CI ran plain
+        `mvn test`, which meant the suite was green for a year with a real defect
+        inside it: a skipped suite is a suite nobody notices going red.
+    -->
 </project>

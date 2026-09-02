@@ -1,1 +1,0 @@
-CREATE INDEX IF NOT EXISTS idx_{{tableName}}_authtokens_token ON {{tableName}}_authtokens (token);

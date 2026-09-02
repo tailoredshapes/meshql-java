@@ -1,6 +1,9 @@
 package com.meshql.cert.authz;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.meshql.auth.token.TokenSession;
+import com.meshql.core.Auth;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Plugin;
 import com.meshql.core.Repository;
 
@@ -28,6 +31,40 @@ public class ContractAuthzWorld {
      */
     public Repository repository;
     public Map<String, Plugin> plugins = new HashMap<>();
+
+    /**
+     * The session the harness reads storage with. It is whichever plugin is under
+     * test answering {@link Auth#systemSession()}, asked for explicitly, and it
+     * defaults to the token plugin's because that is what a server configured the
+     * documented way resolves.
+     */
+    public AuthSession systemSession = TokenSession.system();
+
+    /**
+     * Start this scenario's server with the given auth plugin, or with the one the
+     * server resolves from its own configuration when {@code auth} is null.
+     *
+     * <p>Starting happens from a step rather than from the hooks because the
+     * plugin is a property of the scenario: {@code authz.feature} says "an
+     * authorizing MeshQL server", and {@code auth_plugin.feature} names the plugin
+     * it wants.
+     */
+    public void startServer(Auth auth) throws Exception {
+        stopServer();
+        server = env.buildService(plugins, auth);
+        if (auth != null) {
+            systemSession = auth.systemSession();
+        }
+    }
+
+    public void stopServer() throws Exception {
+        if (server != null) {
+            // Server.stop() also cleans up the plugins it was given, so only the
+            // server that is actually running may be stopped.
+            server.getClass().getMethod("stop").invoke(server);
+            server = null;
+        }
+    }
 
     /** Widget name -> MeshQL id, discovered from storage after a REST create. */
     public final Map<String, String> ids = new HashMap<>();

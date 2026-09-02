@@ -34,7 +34,7 @@ public class SQLiteSearcherCertificationTest extends SearcherCertification {
             this.repository = sqliteRepository;
 
             Auth noAuth = new NoAuth();
-            this.searcher = new SQLiteSearcher(dataSource, tableName, noAuth);
+            this.searcher = new SQLiteSearcher(dataSource, tableName);
             this.templates = createTemplates();
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize SQLite searcher test", e);

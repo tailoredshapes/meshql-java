@@ -5,8 +5,6 @@ import com.github.jknack.handlebars.Template;
 import com.tailoredshapes.stash.Stash;
 
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 public interface Searcher {
     /**
@@ -37,17 +35,31 @@ public interface Searcher {
         }
     }
 
+    /**
+     * Find one authorized record matching the template.
+     *
+     * <p>Authorization is fetch-then-ask: an opaque mark cannot be turned into a
+     * {@code WHERE} clause, so the searcher asks the session about each candidate
+     * and returns the first it is allowed to see.
+     */
     Stash find(
             Template queryTemplate,
             Stash args,
-            List<String> creds,
+            AuthSession session,
             long timestamp
     );
 
+    /**
+     * Find every authorized record matching the template.
+     *
+     * <p>A {@code limit} argument truncates the <em>authorized</em> results, never
+     * the fetched ones. Truncating first returns fewer rows than the caller asked
+     * for and calls it the answer.
+     */
     List<Stash> findAll(
             Template queryTemplate,
             Stash args,
-            List<String> creds,
+            AuthSession session,
             long timestamp
     );
 }

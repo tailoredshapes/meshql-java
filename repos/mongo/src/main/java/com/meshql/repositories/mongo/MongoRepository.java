@@ -1,8 +1,10 @@
 package com.meshql.repositories.mongo;
 
 import com.fasterxml.uuid.Generators;
-import com.meshql.core.Auth;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
+import com.meshql.core.NotAuthorizedException;
+import com.meshql.core.Operation;
 import com.meshql.core.Repository;
 import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoCollection;
@@ -19,10 +21,15 @@ import java.util.stream.Collectors;
 
 import static com.meshql.repositories.mongo.Converters.documentToEnvelope;
 import static com.meshql.repositories.mongo.Converters.envelopeToDocument;
-import static com.tailoredshapes.underbar.ocho.UnderBar.filter;
-import static com.tailoredshapes.underbar.ocho.UnderBar.map;
 
-
+/**
+ * MongoDB storage.
+ *
+ * <p>No query here carries a visibility filter and no method holds credentials.
+ * The auth plugin's mark is opaque, so it cannot become a {@code $match}; the
+ * repository fetches, then asks the session. The mark is part of the same
+ * document as the payload, so authorization is never a second write.
+ */
 public class MongoRepository implements Repository {
     private static final Logger logger = LoggerFactory.getLogger(MongoRepository.class);
     private final MongoCollection<Document> collection;
@@ -36,55 +43,25 @@ public class MongoRepository implements Repository {
         this.collection = collection;
     }
 
-    /**
-     * Applies security filters to a MongoDB query based on authorization tokens.
-     *
-     * <p>A document with no authorized tokens is public and stays readable by a
-     * caller holding credentials of their own. That is the rule
-     * {@link Auth#tokensVisibleTo} applies on the Searcher side; without it here the
-     * two surfaces disagreed, and a record written without credentials came back
-     * through the graphlette while the restlette answered 404.
-     *
-     * <p>The filter applies to every caller, including one presenting no tokens. It
-     * used to be added only when the caller held tokens, which gave an anonymous
-     * request an unfiltered read of everything: a document is public because it
-     * carries no authorized tokens, never because the caller carries none. A caller
-     * that needs to see everything holds {@link Auth#WILDCARD_TOKEN}, and that same
-     * token is matched on the document side so a document marked readable by
-     * everyone is matched too.
-     *
-     * @param tokens List of authorization tokens
-     * @param filter The existing filter to enhance with security
-     * @return The enhanced filter with security constraints
-     */
-    private Bson secureRead(List<String> tokens, Bson filter) {
-        if (Auth.seesEverything(tokens)) {
-            return filter;
-        }
-        LinkedHashSet<String> matched = new LinkedHashSet<>();
-        if (tokens != null) {
-            matched.addAll(tokens);
-        }
-        matched.add(Auth.WILDCARD_TOKEN);
-        return Filters.and(filter, Filters.or(
-                Filters.in("authorizedTokens", matched),
-                Filters.exists("authorizedTokens", false),
-                Filters.eq("authorizedTokens", null),
-                Filters.size("authorizedTokens", 0)));
+    /** A missing session is never an internal call. It is a caller who may see nothing. */
+    private static boolean allows(AuthSession session, Operation operation, Envelope envelope) {
+        return session != null && session.isAuthorized(operation, envelope);
     }
 
     @Override
-    public Envelope create(Envelope envelope, List<String> tokens) {
-        // Generate a new envelope with current timestamp and UUID if needed
+    public Envelope create(Envelope envelope, AuthSession session) {
+        if (session == null) {
+            throw new NotAuthorizedException("A write needs a session; there is no unset session");
+        }
+
         String id = envelope.id() != null ? envelope.id() : Generators.timeBasedGenerator().generate().toString();
         Instant createdAt = Instant.now();
 
-        Envelope newEnvelope = new Envelope(
-                id,
-                envelope.payload(),
-                createdAt,
-                false,
-                tokens);
+        Envelope newEnvelope = session.stamp(
+                new Envelope(id, envelope.payload(), createdAt, false, envelope.auth()));
+        if (!session.isAuthorized(Operation.CREATE, newEnvelope)) {
+            throw new NotAuthorizedException("Not authorized to create " + id);
+        }
 
         try {
             Document doc = envelopeToDocument(newEnvelope);
@@ -97,19 +74,22 @@ public class MongoRepository implements Repository {
     }
 
     @Override
-    public List<Envelope> createMany(List<Envelope> envelopes, List<String> tokens) {
+    public List<Envelope> createMany(List<Envelope> envelopes, AuthSession session) {
+        if (session == null) {
+            throw new NotAuthorizedException("A write needs a session; there is no unset session");
+        }
+
         Instant createdAt = Instant.now();
         List<Document> documents = new ArrayList<>();
         List<Envelope> createdEnvelopes = new ArrayList<>();
 
         for (Envelope envelope : envelopes) {
             String id = UUID.randomUUID().toString();
-            Envelope newEnvelope = new Envelope(
-                    id,
-                    envelope.payload(),
-                    createdAt,
-                    false,
-                    tokens);
+            Envelope newEnvelope = session.stamp(
+                    new Envelope(id, envelope.payload(), createdAt, false, envelope.auth()));
+            if (!session.isAuthorized(Operation.CREATE, newEnvelope)) {
+                throw new NotAuthorizedException("Not authorized to create " + id);
+            }
 
             documents.add(envelopeToDocument(newEnvelope));
             createdEnvelopes.add(newEnvelope);
@@ -125,17 +105,18 @@ public class MongoRepository implements Repository {
     }
 
     @Override
-    public Optional<Envelope> read(String id, List<String> tokens, Instant createdAt) {
-        if (createdAt == null) {
-            createdAt = Instant.now();
-        }
+    public Optional<Envelope> read(String id, AuthSession session, Instant createdAt) {
+        return latestAt(id, createdAt).filter(e -> allows(session, Operation.READ, e));
+    }
+
+    /** The latest live version of an id at an instant, before anyone is asked about it. */
+    private Optional<Envelope> latestAt(String id, Instant createdAt) {
+        Instant at = createdAt == null ? Instant.now() : createdAt;
 
         Bson filter = Filters.and(
                 Filters.eq("id", id),
-                Filters.lte("createdAt", Date.from(createdAt)),
+                Filters.lte("createdAt", Date.from(at)),
                 Filters.eq("deleted", false));
-
-        filter = secureRead(tokens, filter);
 
         try {
             List<Document> results = collection.find(filter)
@@ -154,12 +135,10 @@ public class MongoRepository implements Repository {
     }
 
     @Override
-    public List<Envelope> readMany(List<String> ids, List<String> tokens) {
+    public List<Envelope> readMany(List<String> ids, AuthSession session) {
         Bson match = Filters.and(
                 Filters.in("id", ids),
                 Filters.eq("deleted", false));
-
-        match = secureRead(tokens, match);
 
         try {
             List<Document> results = collection.aggregate(UnderBar.list(
@@ -171,6 +150,7 @@ public class MongoRepository implements Repository {
             return results.stream()
                     .map(Converters::documentToEnvelope)
                     .filter(Objects::nonNull)
+                    .filter(envelope -> allows(session, Operation.READ, envelope))
                     .collect(Collectors.toList());
         } catch (Exception e) {
             logger.error("Error reading multiple documents: {}", e.getMessage(), e);
@@ -179,18 +159,23 @@ public class MongoRepository implements Repository {
     }
 
     /**
-     * Mark a document deleted, if the caller holds a token for it.
+     * Mark a document deleted, if the plugin lets this caller remove it.
      *
      * <p>The return value reports what the update did. It used to report
-     * {@code true} unconditionally, so a caller deleting a document it holds no
-     * token for got HTTP 200 and a {@code "status": "deleted"} body while the
+     * {@code true} unconditionally, so a caller deleting a document it was not
+     * entitled to got HTTP 200 and a {@code "status": "deleted"} body while the
      * document sat untouched. The data was safe; the answer was not.
      */
     @Override
-    public Boolean remove(String id, List<String> tokens) {
+    public Boolean remove(String id, AuthSession session) {
         try {
-            Bson filter = secureRead(tokens, Filters.eq("id", id));
-            return collection.updateMany(filter, Updates.set("deleted", true))
+            boolean removable = latestAt(id, Instant.now())
+                    .filter(e -> allows(session, Operation.REMOVE, e))
+                    .isPresent();
+            if (!removable) {
+                return false;
+            }
+            return collection.updateMany(Filters.eq("id", id), Updates.set("deleted", true))
                     .getModifiedCount() > 0;
         } catch (Exception e) {
             logger.error("Error removing document: {}", e.getMessage(), e);
@@ -200,23 +185,19 @@ public class MongoRepository implements Repository {
 
     /**
      * Remove each id in turn, so the result says which removals happened.
-     *
-     * <p>A single bulk update cannot say which of the ids it matched, and reporting
-     * {@code true} for all of them hid unauthorized removals the same way
-     * {@link #remove} did.
      */
     @Override
-    public Map<String, Boolean> removeMany(List<String> ids, List<String> tokens) {
+    public Map<String, Boolean> removeMany(List<String> ids, AuthSession session) {
         Map<String, Boolean> results = new HashMap<>();
         for (String id : ids) {
-            results.put(id, remove(id, tokens));
+            results.put(id, remove(id, session));
         }
         return results;
     }
 
     @Override
-    public List<Envelope> list(List<String> tokens) {
-        Bson match = secureRead(tokens, Filters.eq("deleted", false));
+    public List<Envelope> list(AuthSession session) {
+        Bson match = Filters.eq("deleted", false);
 
         try {
             List<Document> results = collection.aggregate(UnderBar.list(
@@ -225,8 +206,11 @@ public class MongoRepository implements Repository {
                     Aggregates.group("$id", new BsonField("doc", new Document("$first", "$$ROOT"))),
                     Aggregates.replaceRoot("$doc"))).into(new ArrayList<>());
 
-            return filter(map(results, Converters::documentToEnvelope), Objects::nonNull);
-
+            return results.stream()
+                    .map(Converters::documentToEnvelope)
+                    .filter(Objects::nonNull)
+                    .filter(envelope -> allows(session, Operation.READ, envelope))
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             logger.error("Error listing documents: {}", e.getMessage(), e);
             return Collections.emptyList();

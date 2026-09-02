@@ -1,8 +1,9 @@
 package com.meshql.repositories.ksql;
 
 import com.github.jknack.handlebars.Template;
-import com.meshql.core.Auth;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
+import com.meshql.core.Operation;
 import com.meshql.core.Searcher;
 import com.tailoredshapes.stash.Stash;
 import org.slf4j.Logger;
@@ -24,16 +25,19 @@ public class KsqlSearcher implements Searcher {
 
     private final KsqlHttpClient ksqlClient;
     private final String streamName;
-    private final Auth authorizer;
 
-    public KsqlSearcher(KsqlHttpClient ksqlClient, String topic, Auth authorizer) {
+    public KsqlSearcher(KsqlHttpClient ksqlClient, String topic) {
         this.ksqlClient = ksqlClient;
         // Reads go to the stream, not the materialized table. The table is a
         // LATEST_BY_OFFSET rollup, so it holds one version per id and cannot
         // answer "as of" at all: an `at:` argument silently returned the present.
         // The stream is the version history, so the as-of instant can filter it.
         this.streamName = topic.replace("-", "_") + "_stream";
-        this.authorizer = authorizer;
+    }
+
+    /** A missing session is never an internal call. It is a caller who may see nothing. */
+    private static boolean allows(AuthSession session, Envelope envelope) {
+        return session != null && session.isAuthorized(Operation.READ, envelope);
     }
 
     /**
@@ -66,7 +70,7 @@ public class KsqlSearcher implements Searcher {
     }
 
     @Override
-    public Stash find(Template queryTemplate, Stash args, List<String> creds, long timestamp) {
+    public Stash find(Template queryTemplate, Stash args, AuthSession session, long timestamp) {
         String whereClause = applyTemplate(queryTemplate, args);
         if (whereClause == null || whereClause.trim().isEmpty()) {
             return new Stash();
@@ -75,10 +79,11 @@ public class KsqlSearcher implements Searcher {
         try {
             List<Envelope> results = versionsAsOf(whereClause, timestamp);
 
-            if (!results.isEmpty()) {
-                Envelope envelope = results.get(0);
-
-                if (authorizer.isAuthorized(creds, envelope)) {
+            // Fetch, then ask: the first record the session allows is the answer.
+            // Stopping at the first record would let one unreadable version hide a
+            // readable one behind it.
+            for (Envelope envelope : results) {
+                if (allows(session, envelope)) {
                     Stash payload = envelope.payload();
                     if (payload != null) {
                         payload.put("id", envelope.id());
@@ -96,7 +101,7 @@ public class KsqlSearcher implements Searcher {
     }
 
     @Override
-    public List<Stash> findAll(Template queryTemplate, Stash args, List<String> creds, long timestamp) {
+    public List<Stash> findAll(Template queryTemplate, Stash args, AuthSession session, long timestamp) {
         String whereClause = applyTemplate(queryTemplate, args);
         if (whereClause == null || whereClause.trim().isEmpty()) {
             return Collections.emptyList();
@@ -109,7 +114,7 @@ public class KsqlSearcher implements Searcher {
 
         try {
             Stream<Stash> stream = versionsAsOf(whereClause, timestamp).stream()
-                    .filter(envelope -> authorizer.isAuthorized(creds, envelope))
+                    .filter(envelope -> allows(session, envelope))
                     .map(envelope -> {
                         Stash payload = envelope.payload();
                         if (payload != null) {

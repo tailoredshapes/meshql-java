@@ -51,7 +51,7 @@ class CrudHandlerTest {
         repository = new InMemoryRepository();
         auth = new NoAuth();
         validator = new JSONSchemaValidator(henSchema);
-        crudHandler = new CrudHandler(auth, repository, validator, List.of());
+        crudHandler = new CrudHandler(auth, repository, validator);
 
         mockRequest = mock(HttpServletRequest.class);
         mockResponse = mock(HttpServletResponse.class);
@@ -78,7 +78,7 @@ class CrudHandlerTest {
 
 
         // Get the ID from the repository
-        Envelope envelope = repository.list(list()).get(0);
+        Envelope envelope = repository.list(auth.systemSession()).get(0);
         String henId = envelope.id();
 
         // Test Read
@@ -156,8 +156,8 @@ class CrudHandlerTest {
                 stash("name", "chuck", "eggs", 6),
                 Instant.now(),
                 false,
-                List.of("token"));
-        repository.create(hen, list());
+                null);
+        repository.create(hen, auth.systemSession());
 
         // Test with valid token
         when(mockRequest.getHeader("Authorization")).thenReturn("token");
@@ -192,7 +192,7 @@ class CrudHandlerTest {
         verify(mockResponse).setStatus(HttpServletResponse.SC_CREATED);
 
         // Verify repository has 2 items
-        List<Envelope> envelopes = repository.list(list());
+        List<Envelope> envelopes = repository.list(auth.systemSession());
         assertEquals(2, envelopes.size());
 
         // Test bulk read
@@ -224,7 +224,7 @@ class CrudHandlerTest {
         verify(mockResponse).setHeader(eq("X-Meshql-Created-At"), matches("^\\d{4}-\\d{2}-\\d{2}T.*Z$"));
         verify(mockResponse).setHeader("X-Meshql-Deleted", "false");
 
-        String henId = repository.list(list()).get(0).id();
+        String henId = repository.list(auth.systemSession()).get(0).id();
 
         reset(mockResponse);
         when(mockResponse.getWriter()).thenReturn(new PrintWriter(responseWriter));

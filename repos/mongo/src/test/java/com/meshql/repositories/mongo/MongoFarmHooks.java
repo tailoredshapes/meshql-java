@@ -198,12 +198,12 @@ public class MongoFarmHooks {
 
         // Create plugins
         plugins = new HashMap<>();
-        plugins.put("mongo", new MongoPlugin(new NoAuth()));
+        plugins.put("mongo", new MongoPlugin());
 
         // Create repositories for direct entity creation
-        Repository farmRepo = plugins.get("mongo").createRepository(farmStorage, new NoAuth());
-        Repository coopRepo = plugins.get("mongo").createRepository(coopStorage, new NoAuth());
-        Repository henRepo = plugins.get("mongo").createRepository(henStorage, new NoAuth());
+        Repository farmRepo = plugins.get("mongo").createRepository(farmStorage);
+        Repository coopRepo = plugins.get("mongo").createRepository(coopStorage);
+        Repository henRepo = plugins.get("mongo").createRepository(henStorage);
 
         // Build and start server
         server = farmEnv.buildService(plugins);
@@ -225,13 +225,13 @@ public class MongoFarmHooks {
 
         // Set up repositories for direct entity creation (legacy support)
         world.repositories.put("farm", plugins.get("mongo").createRepository(
-                createFarmStorageConfig(), new NoAuth()
+                createFarmStorageConfig()
         ));
         world.repositories.put("coop", plugins.get("mongo").createRepository(
-                createCoopStorageConfig(), new NoAuth()
+                createCoopStorageConfig()
         ));
         world.repositories.put("hen", plugins.get("mongo").createRepository(
-                createHenStorageConfig(), new NoAuth()
+                createHenStorageConfig()
         ));
 
         world.plugins = plugins;

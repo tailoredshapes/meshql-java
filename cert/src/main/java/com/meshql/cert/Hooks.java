@@ -1,9 +1,9 @@
 package com.meshql.cert;
 
-import com.meshql.auth.noop.NoAuth;
+import com.meshql.auth.token.TokenSession;
 import io.cucumber.java.Before;
 
-import java.util.Collections;
+import java.util.List;
 
 /**
  * Cucumber hooks for test setup and teardown.
@@ -22,8 +22,7 @@ public class Hooks {
     @Before
     public void setUp() {
         world.testStartTime = System.currentTimeMillis();
-        world.tokens = Collections.singletonList("test-token");
-        world.auth = new NoAuth();
+        world.session = new TokenSession(List.of("test-token"));
 
         // Subclasses should override to provide:
         // - world.plugin

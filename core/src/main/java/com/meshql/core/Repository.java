@@ -4,14 +4,24 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 
+/**
+ * Storage for envelopes.
+ *
+ * <p>No method here takes credentials. Every method takes an {@link AuthSession}
+ * instead: an opaque handle the adapter cannot read, only ask. On write the
+ * adapter calls {@link AuthSession#stamp} and persists what comes back, in the
+ * same write as the payload. On read it fetches, then asks
+ * {@link AuthSession#isAuthorized}.
+ *
+ * <p>A null session fails closed. It is never "an internal call".
+ */
 public interface Repository {
-    Envelope create(Envelope envelope, List<String> tokens);
-    Optional<Envelope> read(String id, List<String> tokens, Instant createdAt);
-    List<Envelope> list(List<String> tokens);
-    Boolean remove(String id, List<String> tokens);
-    List<Envelope> createMany(List<Envelope> payloads, List<String> tokens);
-    List<Envelope> readMany(List<String> ids, List<String> tokens);
-    Map<String, Boolean> removeMany(List<String> ids, List<String> tokens);
+    Envelope create(Envelope envelope, AuthSession session);
+    Optional<Envelope> read(String id, AuthSession session, Instant createdAt);
+    List<Envelope> list(AuthSession session);
+    Boolean remove(String id, AuthSession session);
+    List<Envelope> createMany(List<Envelope> payloads, AuthSession session);
+    List<Envelope> readMany(List<String> ids, AuthSession session);
+    Map<String, Boolean> removeMany(List<String> ids, AuthSession session);
 }

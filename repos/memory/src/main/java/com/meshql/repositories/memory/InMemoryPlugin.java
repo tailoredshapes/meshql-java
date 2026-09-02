@@ -1,6 +1,5 @@
 package com.meshql.repositories.memory;
 
-import com.meshql.auth.noop.NoAuth;
 import com.meshql.core.*;
 import com.meshql.core.config.StorageConfig;
 
@@ -9,16 +8,11 @@ public class InMemoryPlugin implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig config) {
-        return createSearcher(config, null);
+        return new InMemorySearcher(store);
     }
 
     @Override
-    public Searcher createSearcher(StorageConfig config, Auth auth) {
-        return new InMemorySearcher(store, auth != null ? auth : new NoAuth());
-    }
-
-    @Override
-    public Repository createRepository(StorageConfig config, Auth auth) {
+    public Repository createRepository(StorageConfig config) {
         return new InMemoryRepository(store);
     }
 

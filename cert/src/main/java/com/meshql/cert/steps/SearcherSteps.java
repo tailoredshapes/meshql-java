@@ -29,7 +29,7 @@ public class SearcherSteps {
 
     @Given("a fresh repository and searcher instance")
     public void createFreshRepositoryAndSearcher() {
-        world.repository = world.plugin.createRepository(world.storageConfig, world.auth);
+        world.repository = world.plugin.createRepository(world.storageConfig);
         world.searcher = world.plugin.createSearcher(world.storageConfig);
     }
 
@@ -43,7 +43,7 @@ public class SearcherSteps {
             })
             .collect(Collectors.toList());
 
-        List<Envelope> saved = world.repository.createMany(envelopes, world.tokens);
+        List<Envelope> saved = world.repository.createMany(envelopes, world.session);
 
         for (Envelope envelope : saved) {
             String name = (String) envelope.payload().get("name");
@@ -57,7 +57,7 @@ public class SearcherSteps {
         if (envelope == null || envelope.id() == null) {
             throw new IllegalStateException("Envelope \"" + name + "\" not found");
         }
-        world.repository.remove(envelope.id(), world.tokens);
+        world.repository.remove(envelope.id(), world.session);
     }
 
     @Given("I have updated envelope {string} to {string} with count {int}")
@@ -77,9 +77,9 @@ public class SearcherSteps {
                 newPayload,
                 null,
                 false,
-                envelope.authorizedTokens()
+                envelope.auth()
             ),
-            world.tokens
+            world.session
         );
 
         world.envelopes.remove(oldName);
@@ -92,7 +92,7 @@ public class SearcherSteps {
         Stash args = prepareSearchParams(templateName, params);
 
         Template template = getTemplate(templateName);
-        world.searchResult = world.searcher.find(template, args, world.tokens, System.currentTimeMillis());
+        world.searchResult = world.searcher.find(template, args, world.session, System.currentTimeMillis());
     }
 
     @When("I search all using template {string} with parameters:")
@@ -101,7 +101,7 @@ public class SearcherSteps {
         Stash args = prepareSearchParams(templateName, params);
 
         Template template = getTemplate(templateName);
-        world.searchResults = world.searcher.findAll(template, args, world.tokens, System.currentTimeMillis());
+        world.searchResults = world.searcher.findAll(template, args, world.session, System.currentTimeMillis());
     }
 
     @When("I search all using template {string} with a limit of {int} and parameters:")
@@ -111,7 +111,7 @@ public class SearcherSteps {
         args.put("limit", limit);
 
         Template template = getTemplate(templateName);
-        world.searchResults = world.searcher.findAll(template, args, world.tokens, System.currentTimeMillis());
+        world.searchResults = world.searcher.findAll(template, args, world.session, System.currentTimeMillis());
     }
 
     @Then("the search result should be empty")

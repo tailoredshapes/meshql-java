@@ -45,8 +45,10 @@ public interface Converters {
         doc.put("createdAt", Date.from(envelope.createdAt()));
         doc.put("deleted", envelope.deleted());
 
-        if (envelope.authorizedTokens() != null) {
-            doc.put("authorizedTokens", envelope.authorizedTokens());
+        // The auth plugin's mark, stored verbatim alongside the payload in the same
+        // document, and never read by anything in this package.
+        if (envelope.auth() != null) {
+            doc.put("auth", stashToDocument(envelope.auth()));
         }
 
         if (envelope.payload() != null) {
@@ -69,9 +71,9 @@ public interface Converters {
         Document payloadDoc = doc.get("payload", Document.class);
         Stash payload = payloadDoc != null ? documentToStash(payloadDoc) : null;
 
-        // Get authorized tokens
-        List<String> authorizedTokens = doc.getList("authorizedTokens", String.class, Collections.emptyList());
+        Document authDoc = doc.get("auth", Document.class);
+        Stash auth = authDoc != null ? documentToStash(authDoc) : null;
 
-        return new Envelope(id, payload, createdAt, deleted, authorizedTokens);
+        return new Envelope(id, payload, createdAt, deleted, auth);
     }
 }

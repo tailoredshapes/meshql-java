@@ -59,14 +59,14 @@ public class MerkSqlStore {
 
         List<Envelope> updated = new ArrayList<>();
         for (Envelope e : envelopes) {
-            Envelope deleted = new Envelope(e.id(), e.payload(), e.createdAt(), true, e.authorizedTokens());
+            Envelope deleted = new Envelope(e.id(), e.payload(), e.createdAt(), true, e.auth());
             updated.add(deleted);
         }
         db.put(id, updated);
 
         // Produce a deletion marker to the broker
         Envelope latest = envelopes.get(envelopes.size() - 1);
-        Envelope tombstone = new Envelope(id, latest.payload(), Instant.now(), true, latest.authorizedTokens());
+        Envelope tombstone = new Envelope(id, latest.payload(), Instant.now(), true, latest.auth());
         String json = envelopeToJson(tombstone);
         MerkSqlNative.produce(handle, topic, id, json);
 
@@ -80,9 +80,11 @@ public class MerkSqlStore {
             map.put("payload", envelope.payload() != null ? MAPPER.writeValueAsString(stashToMap(envelope.payload())) : "{}");
             map.put("created_at", envelope.createdAt().toEpochMilli());
             map.put("deleted", envelope.deleted());
-            map.put("authorized_tokens", envelope.authorizedTokens() != null
-                    ? MAPPER.writeValueAsString(envelope.authorizedTokens())
-                    : "[]");
+            // The auth plugin's mark, persisted verbatim in the same write as the
+            // payload. Nothing here reads it.
+            map.put("auth", envelope.auth() != null
+                    ? MAPPER.writeValueAsString(stashToMap(envelope.auth()))
+                    : "{}");
             return MAPPER.writeValueAsString(map);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize envelope to JSON", e);

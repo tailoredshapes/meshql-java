@@ -15,13 +15,8 @@ import java.util.Properties;
 public class KsqlPlugin implements Plugin {
     private static final Logger logger = LoggerFactory.getLogger(KsqlPlugin.class);
 
-    private final Auth auth;
     private final Map<String, KafkaProducer<String, String>> producers = new HashMap<>();
     private final Map<String, KsqlHttpClient> httpClients = new HashMap<>();
-
-    public KsqlPlugin(Auth auth) {
-        this.auth = auth;
-    }
 
     private KafkaProducer<String, String> getOrCreateProducer(KsqlConfig config) {
         return producers.computeIfAbsent(config.bootstrapServers, k -> {
@@ -39,12 +34,12 @@ public class KsqlPlugin implements Plugin {
     }
 
     @Override
-    public Repository createRepository(StorageConfig sc, Auth auth) {
+    public Repository createRepository(StorageConfig sc) {
         KsqlConfig config = (KsqlConfig) sc;
         KafkaProducer<String, String> producer = getOrCreateProducer(config);
         KsqlHttpClient httpClient = getOrCreateHttpClient(config);
 
-        KsqlRepository repository = new KsqlRepository(producer, httpClient, config.bootstrapServers, config.topic, auth);
+        KsqlRepository repository = new KsqlRepository(producer, httpClient, config.bootstrapServers, config.topic);
 
         if (config.autoCreate) {
             repository.initialize(config.partitions, config.replicationFactor);
@@ -55,14 +50,9 @@ public class KsqlPlugin implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig sc) {
-        return createSearcher(sc, null);
-    }
-
-    @Override
-    public Searcher createSearcher(StorageConfig sc, Auth auth) {
         KsqlConfig config = (KsqlConfig) sc;
         KsqlHttpClient httpClient = getOrCreateHttpClient(config);
-        return new KsqlSearcher(httpClient, config.topic, auth != null ? auth : this.auth);
+        return new KsqlSearcher(httpClient, config.topic);
     }
 
     @Override

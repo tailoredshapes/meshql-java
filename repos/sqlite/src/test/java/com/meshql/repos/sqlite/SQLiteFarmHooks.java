@@ -170,12 +170,12 @@ public class SQLiteFarmHooks {
 
         // Create plugins
         plugins = new HashMap<>();
-        plugins.put("sqlite", new SQLitePlugin(new NoAuth()));
+        plugins.put("sqlite", new SQLitePlugin());
 
         // Initialize tables before starting server
-        SQLiteRepository farmRepo = (SQLiteRepository) plugins.get("sqlite").createRepository(farmStorage, null);
-        SQLiteRepository coopRepo = (SQLiteRepository) plugins.get("sqlite").createRepository(coopStorage, null);
-        SQLiteRepository henRepo = (SQLiteRepository) plugins.get("sqlite").createRepository(henStorage, null);
+        SQLiteRepository farmRepo = (SQLiteRepository) plugins.get("sqlite").createRepository(farmStorage);
+        SQLiteRepository coopRepo = (SQLiteRepository) plugins.get("sqlite").createRepository(coopStorage);
+        SQLiteRepository henRepo = (SQLiteRepository) plugins.get("sqlite").createRepository(henStorage);
 
         // Note: SQLite repositories initialize themselves in createRepository
         logger.info("Initialized SQLite tables: {}, {}, {}", farmTable, coopTable, henTable);
@@ -199,9 +199,9 @@ public class SQLiteFarmHooks {
         SQLiteConfig coopConfig = new SQLiteConfig(dbFile, coopTable);
         SQLiteConfig henConfig = new SQLiteConfig(dbFile, henTable);
 
-        world.repositories.put("farm", plugins.get("sqlite").createRepository(farmConfig, null));
-        world.repositories.put("coop", plugins.get("sqlite").createRepository(coopConfig, null));
-        world.repositories.put("hen", plugins.get("sqlite").createRepository(henConfig, null));
+        world.repositories.put("farm", plugins.get("sqlite").createRepository(farmConfig));
+        world.repositories.put("coop", plugins.get("sqlite").createRepository(coopConfig));
+        world.repositories.put("hen", plugins.get("sqlite").createRepository(henConfig));
 
         world.plugins = plugins;
     }

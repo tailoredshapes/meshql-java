@@ -1,7 +1,5 @@
 package com.meshql.repositories.postgres;
 
-import com.meshql.auth.noop.NoAuth;
-import com.meshql.core.Auth;
 import com.meshql.core.Plugin;
 import com.meshql.core.Repository;
 import com.meshql.core.Searcher;
@@ -23,11 +21,11 @@ public class PostgresPluginWrapper implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig config) {
-        return new PostgresSearcher(dataSource, tableName, new NoAuth());
+        return new PostgresSearcher(dataSource, tableName);
     }
 
     @Override
-    public Repository createRepository(StorageConfig config, Auth auth) {
+    public Repository createRepository(StorageConfig config) {
         return new PostgresRepository(dataSource, tableName);
     }
 

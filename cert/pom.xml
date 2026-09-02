@@ -84,6 +84,22 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- The token plugin: authz.feature certifies its rule, and the harness
+             reads storage with its system session. -->
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>token</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- The JWT plugin: the auth_plugin fixtures resolve their caller the same
+             way a deployment does, from the trusted identity header. -->
+        <dependency>
+            <groupId>com.tailoredshapes</groupId>
+            <artifactId>jwt</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- JSON Schema, for the restlette config the authz certification stands up -->
         <dependency>
             <groupId>com.networknt</groupId>

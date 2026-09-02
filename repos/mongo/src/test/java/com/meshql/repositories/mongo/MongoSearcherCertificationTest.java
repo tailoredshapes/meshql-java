@@ -74,7 +74,7 @@ public class MongoSearcherCertificationTest extends SearcherCertification {
 
         Auth noOpAuth = new NoAuth();
 
-        this.searcher = new MongoSearcher(testCollection, noOpAuth);
+        this.searcher = new MongoSearcher(testCollection);
 
         logger.info("Initialized MongoDB repository and searcher with collection: {}", collectionName);
     }

@@ -72,10 +72,10 @@ public class PostgresContractAuthzHooks extends ContractAuthzHooks {
         storage.password = container.getPassword();
         storage.table = "widget_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
 
-        PostgresPlugin plugin = new PostgresPlugin(new NoAuth());
+        PostgresPlugin plugin = new PostgresPlugin();
         // PostgreSQL tables are not created lazily, so build them before the
         // server takes its first request.
-        ((PostgresRepository) plugin.createRepository(storage, null)).initialize();
+        ((PostgresRepository) plugin.createRepository(storage)).initialize();
 
         return new ContractAuthzBackend(plugin, storage, ContractAuthzQueries.postgresQueries());
     }

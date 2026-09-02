@@ -1,7 +1,5 @@
 package com.meshql.repos.sqlite;
 
-import com.meshql.auth.noop.NoAuth;
-import com.meshql.core.Auth;
 import com.meshql.core.Plugin;
 import com.meshql.core.Repository;
 import com.meshql.core.Searcher;
@@ -23,11 +21,11 @@ public class SQLitePluginWrapper implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig config) {
-        return new SQLiteSearcher(dataSource, tableName, new NoAuth());
+        return new SQLiteSearcher(dataSource, tableName);
     }
 
     @Override
-    public Repository createRepository(StorageConfig config, Auth auth) {
+    public Repository createRepository(StorageConfig config) {
         try {
             return new SQLiteRepository(dataSource.getConnection(), tableName);
         } catch (Exception e) {

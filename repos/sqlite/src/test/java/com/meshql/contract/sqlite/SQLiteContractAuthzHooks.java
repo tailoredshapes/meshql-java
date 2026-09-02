@@ -48,7 +48,7 @@ public class SQLiteContractAuthzHooks extends ContractAuthzHooks {
         String table = "widget_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
 
         return new ContractAuthzBackend(
-                new SQLitePlugin(new NoAuth()),
+                new SQLitePlugin(),
                 new SQLiteConfig(database.toString(), table),
                 ContractAuthzQueries.sqliteQueries());
     }

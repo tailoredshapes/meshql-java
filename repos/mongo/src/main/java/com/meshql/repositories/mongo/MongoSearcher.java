@@ -1,8 +1,9 @@
 package com.meshql.repositories.mongo;
 
 import com.github.jknack.handlebars.Template;
-import com.meshql.core.Auth;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
+import com.meshql.core.Operation;
 import com.meshql.core.Searcher;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Aggregates;
@@ -33,17 +34,19 @@ public class MongoSearcher implements Searcher {
     private static final Logger logger = LoggerFactory.getLogger(MongoSearcher.class);
 
     private final MongoCollection<Document> collection;
-    private final Auth authorizer;
 
     /**
      * Constructor for MongoSearcher.
      *
      * @param collection MongoDB collection to search
-     * @param authorizer Authorization service
      */
-    public MongoSearcher(MongoCollection<Document> collection, Auth authorizer) {
+    public MongoSearcher(MongoCollection<Document> collection) {
         this.collection = collection;
-        this.authorizer = authorizer;
+    }
+
+    /** A missing session is never an internal call. It is a caller who may see nothing. */
+    private static boolean allows(AuthSession session, Envelope envelope) {
+        return session != null && session.isAuthorized(Operation.READ, envelope);
     }
 
     /**
@@ -71,7 +74,7 @@ public class MongoSearcher implements Searcher {
     }
 
     @Override
-    public Stash find(Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+    public Stash find(Template queryTemplate, Stash args, AuthSession session, long timestamp) {
         Document query = processQueryTemplate(args, queryTemplate);
 
         // Add timestamp filter
@@ -91,22 +94,20 @@ public class MongoSearcher implements Searcher {
             logger.info("MongoSearcher.find() - Found {} results", results.size());
 
             if (!results.isEmpty()) {
-                Document result = results.get(0);
-                Envelope envelope = documentToEnvelope(result);
+                // Fetch, then ask. The documents come back newest first, so the first
+                // the session allows is the answer; stopping at the first document
+                // would let one unreadable record hide a readable one behind it.
+                for (Document result : results) {
+                    Envelope envelope = documentToEnvelope(result);
 
-                logger.info("MongoSearcher.find() - First result: id={}, payload={}",
-                        envelope.id(), envelope.payload());
-
-                if (authorizer.isAuthorized(tokens, envelope)) {
-                    Stash payload = envelope.payload();
-                    if (payload != null) {
-                        payload.put("id", envelope.id());
-                        payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
-                        logger.info("MongoSearcher.find() - Returning payload with keys: {}", payload.keySet());
-                        return payload;
+                    if (allows(session, envelope)) {
+                        Stash payload = envelope.payload();
+                        if (payload != null) {
+                            payload.put("id", envelope.id());
+                            payload.put("createdAt", DateTimeFormatter.ISO_INSTANT.format(envelope.createdAt()));
+                            return payload;
+                        }
                     }
-                } else {
-                    logger.warn("Not authorized to access document: {}", envelope.id());
                 }
             } else {
                 logger.warn("MongoSearcher.find() - No results found for query: {}", query.toJson());
@@ -120,7 +121,7 @@ public class MongoSearcher implements Searcher {
     }
 
     @Override
-    public List<Stash> findAll(Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+    public List<Stash> findAll(Template queryTemplate, Stash args, AuthSession session, long timestamp) {
         Document query = processQueryTemplate(args, queryTemplate);
 
         // Extract limit from args (reserved argument)
@@ -151,17 +152,15 @@ public class MongoSearcher implements Searcher {
                     new Document("$replaceRoot",
                             new Document("newRoot", "$doc"))));
 
-            if (limit > 0) {
-                pipeline.add(Aggregates.limit(limit));
-            }
-
+            // The limit is deliberately not in the pipeline: it has to truncate the
+            // authorized documents, not the fetched ones.
             List<Document> results = collection.aggregate(pipeline).into(new ArrayList<>());
 
             logger.info("MongoSearcher.findAll() - Found {} results before authorization", results.size());
 
-            List<Stash> finalResults = results.stream()
+            java.util.stream.Stream<Stash> authorized = results.stream()
                     .map(Converters::documentToEnvelope)
-                    .filter(envelope -> authorizer.isAuthorized(tokens, envelope))
+                    .filter(envelope -> allows(session, envelope))
                     .map(envelope -> {
                         Stash payload = envelope.payload();
                         if (payload != null) {
@@ -171,8 +170,13 @@ public class MongoSearcher implements Searcher {
                         }
                         return null;
                     })
-                    .filter(payload -> payload != null)
-                    .collect(Collectors.toList());
+                    .filter(payload -> payload != null);
+
+            if (limit > 0) {
+                authorized = authorized.limit(limit);
+            }
+
+            List<Stash> finalResults = authorized.collect(Collectors.toList());
 
             logger.info("MongoSearcher.findAll() - Returning {} results after authorization", finalResults.size());
             if (!finalResults.isEmpty()) {

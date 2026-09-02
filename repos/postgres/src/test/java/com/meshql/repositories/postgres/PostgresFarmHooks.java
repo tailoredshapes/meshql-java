@@ -197,12 +197,12 @@ public class PostgresFarmHooks {
 
         // Create plugins
         plugins = new HashMap<>();
-        plugins.put("postgres", new PostgresPlugin(new NoAuth()));
+        plugins.put("postgres", new PostgresPlugin());
 
         // Initialize tables before starting server
-        PostgresRepository farmRepo = (PostgresRepository) plugins.get("postgres").createRepository(farmStorage, null);
-        PostgresRepository coopRepo = (PostgresRepository) plugins.get("postgres").createRepository(coopStorage, null);
-        PostgresRepository henRepo = (PostgresRepository) plugins.get("postgres").createRepository(henStorage, null);
+        PostgresRepository farmRepo = (PostgresRepository) plugins.get("postgres").createRepository(farmStorage);
+        PostgresRepository coopRepo = (PostgresRepository) plugins.get("postgres").createRepository(coopStorage);
+        PostgresRepository henRepo = (PostgresRepository) plugins.get("postgres").createRepository(henStorage);
 
         farmRepo.initialize();
         coopRepo.initialize();
@@ -243,9 +243,9 @@ public class PostgresFarmHooks {
         henConfig.password = postgresContainer.getPassword();
         henConfig.table = henTable;
 
-        world.repositories.put("farm", plugins.get("postgres").createRepository(farmConfig, null));
-        world.repositories.put("coop", plugins.get("postgres").createRepository(coopConfig, null));
-        world.repositories.put("hen", plugins.get("postgres").createRepository(henConfig, null));
+        world.repositories.put("farm", plugins.get("postgres").createRepository(farmConfig));
+        world.repositories.put("coop", plugins.get("postgres").createRepository(coopConfig));
+        world.repositories.put("hen", plugins.get("postgres").createRepository(henConfig));
 
         world.plugins = plugins;
     }

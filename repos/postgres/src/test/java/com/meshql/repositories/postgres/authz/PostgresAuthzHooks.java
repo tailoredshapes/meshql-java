@@ -75,10 +75,10 @@ public class PostgresAuthzHooks {
         );
 
         plugins = new HashMap<>();
-        plugins.put("postgres", new PostgresPlugin(new NoAuth()));
+        plugins.put("postgres", new PostgresPlugin());
 
         // PostgreSQL tables are not created lazily; initialize before the server starts.
-        ((PostgresRepository) plugins.get("postgres").createRepository(storage, null)).initialize();
+        ((PostgresRepository) plugins.get("postgres").createRepository(storage)).initialize();
 
         server = env.buildService(plugins);
 
@@ -90,7 +90,7 @@ public class PostgresAuthzHooks {
         world.env = env;
         world.server = server;
         world.plugins = plugins;
-        world.repository = plugins.get("postgres").createRepository(storage, null);
+        world.repository = plugins.get("postgres").createRepository(storage);
     }
 
     @AfterAll

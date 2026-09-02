@@ -18,9 +18,12 @@ public interface Converters {
             map.put("payload", envelope.payload() != null ? MAPPER.writeValueAsString(stashToMap(envelope.payload())) : "{}");
             map.put("created_at", envelope.createdAt().toEpochMilli());
             map.put("deleted", envelope.deleted());
-            map.put("authorized_tokens", envelope.authorizedTokens() != null
-                    ? MAPPER.writeValueAsString(envelope.authorizedTokens())
-                    : "[]");
+            // The auth plugin's mark, serialised verbatim into the same record as the
+            // payload. Nothing here reads it. The ksqlDB column keeps its historical
+            // name; what it holds is now the opaque mark rather than a token list.
+            map.put("authorized_tokens", envelope.auth() != null
+                    ? MAPPER.writeValueAsString(stashToMap(envelope.auth()))
+                    : "{}");
             return MAPPER.writeValueAsString(map);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize envelope to JSON", e);
@@ -38,10 +41,9 @@ public interface Converters {
         Object deletedObj = getField(row, "DELETED", "deleted");
         boolean deleted = deletedObj instanceof Boolean ? (Boolean) deletedObj : false;
 
-        String tokensStr = getStringField(row, "AUTHORIZED_TOKENS", "authorized_tokens");
-        List<String> authorizedTokens = parseTokens(tokensStr);
+        Stash auth = parseAuth(getStringField(row, "AUTHORIZED_TOKENS", "authorized_tokens"));
 
-        return new Envelope(id, payload, createdAt, deleted, authorizedTokens);
+        return new Envelope(id, payload, createdAt, deleted, auth);
     }
 
     static Stash parsePayload(String json) {
@@ -56,14 +58,16 @@ public interface Converters {
         }
     }
 
-    static List<String> parseTokens(String json) {
+    /** Read the stored mark back into the shape the plugin stamped. */
+    static Stash parseAuth(String json) {
         if (json == null || json.isEmpty()) {
-            return Collections.emptyList();
+            return null;
         }
         try {
-            return MAPPER.readValue(json, new TypeReference<>() {});
+            Map<String, Object> map = MAPPER.readValue(json, new TypeReference<>() {});
+            return mapToStash(map);
         } catch (JsonProcessingException e) {
-            return Collections.emptyList();
+            return null;
         }
     }
 

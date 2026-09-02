@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.meshql.auth.casbin.CasbinAuth;
+import com.meshql.auth.token.TokenSession;
 import com.meshql.auth.jwt.JWTSubAuthorizer;
 import com.meshql.core.Auth;
 import com.meshql.core.Envelope;
@@ -198,14 +199,16 @@ class PolicyEvaluationCountTest {
         InMemoryStore store = new InMemoryStore();
         InMemoryRepository repository = new InMemoryRepository(store);
 
+        // Written as the callers themselves, so each document carries the mark that
+        // caller's session stamps - which is the whole point of the read counts below.
         repository.create(new Envelope("doc-a",
                 stash("name", "Alice's document", "type", "memo"),
-                null, false, null), list("tenant-a"));
+                null, false, null), new TokenSession(list("tenant-a")));
         repository.create(new Envelope("doc-b",
                 stash("name", "Bob's document", "type", "memo"),
-                null, false, null), list("tenant-b"));
+                null, false, null), new TokenSession(list("tenant-b")));
 
-        InMemorySearcher searcher = new InMemorySearcher(store, auth);
+        InMemorySearcher searcher = new InMemorySearcher(store);
 
         RootConfig rootConfig = RootConfig.builder()
                 .singleton("getById", "id = '{{id}}'")

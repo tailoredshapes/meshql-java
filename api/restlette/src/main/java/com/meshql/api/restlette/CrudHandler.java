@@ -3,7 +3,9 @@ package com.meshql.api.restlette;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.meshql.core.Auth;
+import com.meshql.core.AuthSession;
 import com.meshql.core.Envelope;
+import com.meshql.core.NotAuthorizedException;
 import com.meshql.core.Repository;
 import com.meshql.core.Validator;
 import com.tailoredshapes.stash.Stash;
@@ -27,14 +29,11 @@ public class CrudHandler {
 
     private final Auth authorizer;
     private final Repository repository;
-    private final List<String> tokens;
     private final Validator validator;
 
-    public CrudHandler(Auth authorizer, Repository repository, Validator validator,
-                       List<String> tokens) {
+    public CrudHandler(Auth authorizer, Repository repository, Validator validator) {
         this.authorizer = authorizer;
         this.repository = repository;
-        this.tokens = tokens != null ? tokens : List.of();
         this.validator = validator;
 
         objectMapper = new ObjectMapper();
@@ -49,7 +48,7 @@ public class CrudHandler {
             String body = request.getReader().lines().collect(Collectors.joining());
             Stash payload = Stash.parseJSON(body);
             // Resolve the writer's identity from the request, not from the body they sent.
-            List<String> authTokens = getAuthTokens(request);
+            AuthSession session = sessionFor(request);
 
             boolean isValid = validator.validate(payload).get();
             if (!isValid) {
@@ -58,17 +57,13 @@ public class CrudHandler {
             }
 
             String id = UUID.randomUUID().toString();
-            List<String> storedTokens = tokensToPersist(authTokens);
-            Envelope envelope = new Envelope(
-                    id,
-                    payload,
-                    Instant.now(),
-                    false,
-                    storedTokens);
+            Envelope envelope = new Envelope(id, payload, Instant.now(), false, null);
 
-            Envelope result = repository.create(envelope, storedTokens);
+            Envelope result = repository.create(envelope, session);
             setHonestyHeaders(response, result);
             sendJsonResponse(response, HttpServletResponse.SC_CREATED, result.payload());
+        } catch (NotAuthorizedException e) {
+            sendJsonError(response, HttpServletResponse.SC_FORBIDDEN, "Not authorized");
         } catch (Exception e) {
             logger.error("Failed to create resource", e);
             sendJsonError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
@@ -81,9 +76,7 @@ public class CrudHandler {
      */
     public void read(HttpServletRequest request, HttpServletResponse response, String id) throws IOException {
         try {
-            List<String> authTokens = getAuthTokens(request);
-
-            Optional<Envelope> envelope = repository.read(id, authTokens, Instant.now());
+            Optional<Envelope> envelope = repository.read(id, sessionFor(request), Instant.now());
 
             if (envelope.isEmpty()) {
                 sendJsonError(response, HttpServletResponse.SC_NOT_FOUND, "Resource not found");
@@ -106,7 +99,7 @@ public class CrudHandler {
         try {
             String body = request.getReader().lines().collect(Collectors.joining());
             Stash payload = Stash.parseJSON(body);
-            List<String> authTokens = getAuthTokens(request);
+            AuthSession session = sessionFor(request);
 
             boolean isValid = validator.validate(payload).get();
             if (!isValid) {
@@ -114,24 +107,20 @@ public class CrudHandler {
                 return;
             }
 
-            Optional<Envelope> existing = repository.read(id, authTokens, Instant.now());
+            Optional<Envelope> existing = repository.read(id, session, Instant.now());
 
             if (existing.isEmpty()) {
                 sendJsonError(response, HttpServletResponse.SC_NOT_FOUND, "Resource not found");
                 return;
             }
 
-            List<String> storedTokens = tokensToPersist(authTokens);
-            Envelope envelope = new Envelope(
-                    id,
-                    payload,
-                    Instant.now(),
-                    false,
-                    storedTokens);
+            Envelope envelope = new Envelope(id, payload, Instant.now(), false, null);
 
-            Envelope result = repository.create(envelope, storedTokens);
+            Envelope result = repository.create(envelope, session);
             setHonestyHeaders(response, result);
             sendJsonResponse(response, HttpServletResponse.SC_OK, result.payload());
+        } catch (NotAuthorizedException e) {
+            sendJsonError(response, HttpServletResponse.SC_FORBIDDEN, "Not authorized");
         } catch (Exception e) {
             logger.error("Failed to update resource", e);
             sendJsonError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
@@ -144,9 +133,7 @@ public class CrudHandler {
      */
     public void remove(HttpServletRequest request, HttpServletResponse response, String id) throws IOException {
         try {
-            List<String> authTokens = getAuthTokens(request);
-
-            Boolean result = repository.remove(id, authTokens);
+            Boolean result = repository.remove(id, sessionFor(request));
 
             if (!result) {
                 sendJsonError(response, HttpServletResponse.SC_NOT_FOUND,
@@ -168,8 +155,7 @@ public class CrudHandler {
      */
     public void list(HttpServletRequest request, HttpServletResponse response) throws IOException {
         try {
-            List<String> authTokens = getAuthTokens(request);
-            List<Envelope> results = repository.list(authTokens);
+            List<Envelope> results = repository.list(sessionFor(request));
 
             List<Stash> payloads = map(results, Envelope::payload);
             sendJsonResponse(response, HttpServletResponse.SC_OK, payloads);
@@ -190,8 +176,7 @@ public class CrudHandler {
                     body,
                     objectMapper.getTypeFactory().constructCollectionType(List.class, Map.class));
 
-            List<String> authTokens = getAuthTokens(request);
-            List<String> storedTokens = tokensToPersist(authTokens);
+            AuthSession session = sessionFor(request);
             List<Envelope> envelopes = new ArrayList<>();
 
             for (Map<String, Object> item : items) {
@@ -204,18 +189,13 @@ public class CrudHandler {
                 }
 
                 String id = UUID.randomUUID().toString();
-                Envelope envelope = new Envelope(
-                        id,
-                        payload,
-                        Instant.now(),
-                        false,
-                        storedTokens);
-
-                envelopes.add(envelope);
+                envelopes.add(new Envelope(id, payload, Instant.now(), false, null));
             }
 
-            List<Envelope> results = repository.createMany(envelopes, storedTokens);
+            List<Envelope> results = repository.createMany(envelopes, session);
             sendJsonResponse(response, HttpServletResponse.SC_CREATED, results);
+        } catch (NotAuthorizedException e) {
+            sendJsonError(response, HttpServletResponse.SC_FORBIDDEN, "Not authorized");
         } catch (Exception e) {
             logger.error("Failed to bulk create resources", e);
             sendJsonError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
@@ -235,9 +215,8 @@ public class CrudHandler {
             }
 
             List<String> ids = Arrays.asList(idsParam.split(","));
-            List<String> authTokens = getAuthTokens(request);
 
-            List<Envelope> results = repository.readMany(ids, authTokens);
+            List<Envelope> results = repository.readMany(ids, sessionFor(request));
 
             sendJsonResponse(response, HttpServletResponse.SC_OK, results);
         } catch (Exception e) {
@@ -248,46 +227,26 @@ public class CrudHandler {
     }
 
     /**
-     * Decide which authorized tokens a new record is stamped with.
+     * Ask the auth plugin who this request is, and hand the answer to storage.
      *
-     * <p>The union of the restlette's configured tokens and the tokens Auth resolved
-     * for the writer. Previously the writer's tokens were computed and then thrown
-     * away in favour of the configured list alone, which is almost always empty -
-     * so everything written through the restlette was stored world-readable and no
-     * amount of correct filtering downstream could restrict it.
+     * <p>The handler no longer decides what a record is stamped with, nor which
+     * records a caller may see. Both used to happen here - the writer's tokens
+     * were merged with a configured list on write, and the read path knew nothing
+     * about that list, so the two disagreed about who could see what. What goes on
+     * a record is now {@code AuthSession.stamp}, and who may see it is
+     * {@code AuthSession.isAuthorized}.
      *
-     * <p>Both empty stays both empty: a caller presenting no credentials writes a
-     * public record. That is the documented contract - the edge authenticates, the
-     * framework authorizes - and it is deliberately preserved.
+     * <p>A request with no Authorization header still gets a session, resolved
+     * from an empty context. There is no unset session: what an unidentified
+     * caller may do is the plugin's answer, not the absence of one.
      */
-    private List<String> tokensToPersist(List<String> callerTokens) {
-        if (callerTokens == null || callerTokens.isEmpty()) {
-            return tokens;
+    private AuthSession sessionFor(HttpServletRequest request) {
+        Stash context = new Stash();
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && !authHeader.isEmpty()) {
+            context.put("headers", Map.of("authorization", authHeader));
         }
-        if (tokens.isEmpty()) {
-            return List.copyOf(callerTokens);
-        }
-        LinkedHashSet<String> merged = new LinkedHashSet<>(tokens);
-        merged.addAll(callerTokens);
-        return List.copyOf(merged);
-    }
-
-    /**
-     * Get authentication tokens from request
-     */
-    private List<String> getAuthTokens(HttpServletRequest request) {
-        try {
-            String authHeader = request.getHeader("Authorization");
-            if (authHeader != null && !authHeader.isEmpty()) {
-                Stash context = new Stash();
-                context.put("headers", Map.of("authorization", authHeader));
-                return authorizer.getAuthToken(context);
-            }
-            return List.of();
-        } catch (Exception e) {
-            logger.error("Failed to get auth tokens", e);
-            return List.of();
-        }
+        return authorizer.authenticate(context);
     }
 
     /**

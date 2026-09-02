@@ -58,7 +58,6 @@ class EntityDsl {
         JsonSchema jsonSchema = loadJsonSchema(schemaPath)
 
         restletteConfig = new RestletteConfig(
-                List.of(),
                 path,
                 port,
                 createMongoConfig(),

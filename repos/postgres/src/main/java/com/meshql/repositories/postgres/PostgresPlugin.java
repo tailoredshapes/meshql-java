@@ -1,6 +1,5 @@
 package com.meshql.repositories.postgres;
 
-import com.meshql.core.Auth;
 import com.meshql.core.Plugin;
 import com.meshql.core.Repository;
 import com.meshql.core.Searcher;
@@ -19,26 +18,16 @@ import java.util.Map;
  */
 public class PostgresPlugin implements Plugin {
     private final Map<String, HikariDataSource> dataSources = new HashMap<>();
-    private final Auth auth;
-
-    public PostgresPlugin(Auth auth) {
-        this.auth = auth;
-    }
 
     @Override
     public Searcher createSearcher(StorageConfig config) {
-        return createSearcher(config, null);
-    }
-
-    @Override
-    public Searcher createSearcher(StorageConfig config, Auth auth) {
         PostgresConfig pgConfig = (PostgresConfig) config;
         DataSource dataSource = getOrCreateDataSource(pgConfig);
-        return new PostgresSearcher(dataSource, pgConfig.table, auth != null ? auth : this.auth);
+        return new PostgresSearcher(dataSource, pgConfig.table);
     }
 
     @Override
-    public Repository createRepository(StorageConfig config, Auth auth) {
+    public Repository createRepository(StorageConfig config) {
         PostgresConfig pgConfig = (PostgresConfig) config;
         DataSource dataSource = getOrCreateDataSource(pgConfig);
         return new PostgresRepository(dataSource, pgConfig.table);

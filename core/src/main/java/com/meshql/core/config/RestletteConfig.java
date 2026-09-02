@@ -2,11 +2,19 @@ package com.meshql.core.config;
 
 import com.networknt.schema.JsonSchema;
 
-import java.util.ArrayList;
-import java.util.List;
-
+/**
+ * One REST surface.
+ *
+ * <p>There is no {@code tokens} field. It used to name a list of authorized
+ * tokens the handler added to everything it wrote, which the read path then knew
+ * nothing about: a record stamped with the restlette's token was no longer
+ * public, but no caller was ever granted that token, so writes and reads
+ * disagreed about who could see what. Stamping a record is the auth plugin's
+ * job now - see {@code AuthSession.stamp} - and a deployment that wants every
+ * record in a restlette marked says so in its plugin, where the read side can
+ * see the same rule.
+ */
 public record RestletteConfig(
-        List<String> tokens,
         String path,
         int port,
         StorageConfig storage,
@@ -17,21 +25,10 @@ public record RestletteConfig(
     }
 
     public static class Builder {
-        private List<String> tokens = new ArrayList<>();
         private String path;
         private int port = 3033;
         private StorageConfig storage;
         private JsonSchema schema;
-
-        public Builder tokens(List<String> tokens) {
-            this.tokens = new ArrayList<>(tokens);
-            return this;
-        }
-
-        public Builder token(String token) {
-            this.tokens.add(token);
-            return this;
-        }
 
         public Builder path(String path) {
             this.path = path;
@@ -60,7 +57,7 @@ public record RestletteConfig(
             if (storage == null) {
                 throw new IllegalArgumentException("restlette storage is required");
             }
-            return new RestletteConfig(List.copyOf(tokens), path, port, storage, schema);
+            return new RestletteConfig(path, port, storage, schema);
         }
     }
 }

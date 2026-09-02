@@ -69,7 +69,7 @@ public class PostgresSearcherTest extends SearcherCertification {
 
             // Create the searcher with NoAuth
             Auth noAuth = new NoAuth();
-            searcher = new PostgresSearcher(dataSource, tableName, noAuth);
+            searcher = new PostgresSearcher(dataSource, tableName);
 
             // Create the templates
             templates = createTemplates();

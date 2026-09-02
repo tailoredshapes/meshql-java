@@ -1,6 +1,5 @@
 package com.meshql.repositories.merksql;
 
-import com.meshql.auth.noop.NoAuth;
 import com.meshql.core.*;
 import com.meshql.core.config.StorageConfig;
 import org.slf4j.Logger;
@@ -35,7 +34,7 @@ public class MerkSqlPlugin implements Plugin {
     }
 
     @Override
-    public Repository createRepository(StorageConfig sc, Auth auth) {
+    public Repository createRepository(StorageConfig sc) {
         MerkSqlConfig config = (MerkSqlConfig) sc;
         MerkSqlStore store = getOrCreateStore(config);
         return new MerkSqlRepository(store);
@@ -43,14 +42,9 @@ public class MerkSqlPlugin implements Plugin {
 
     @Override
     public Searcher createSearcher(StorageConfig sc) {
-        return createSearcher(sc, null);
-    }
-
-    @Override
-    public Searcher createSearcher(StorageConfig sc, Auth auth) {
         MerkSqlConfig config = (MerkSqlConfig) sc;
         MerkSqlStore store = getOrCreateStore(config);
-        return new MerkSqlSearcher(store, auth != null ? auth : new NoAuth());
+        return new MerkSqlSearcher(store);
     }
 
     @Override

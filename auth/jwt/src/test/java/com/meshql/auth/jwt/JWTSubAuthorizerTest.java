@@ -1,6 +1,9 @@
 package com.meshql.auth.jwt;
 
+import com.meshql.auth.token.TokenMark;
+import com.meshql.auth.token.TokenSession;
 import com.meshql.core.Envelope;
+import com.meshql.core.Operation;
 import com.tailoredshapes.stash.Stash;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,61 +49,61 @@ class JWTSubAuthorizerTest {
         return header + "." + payload + "." + signature;
     }
 
-    // ==================== getAuthToken tests ====================
+    // ==================== authenticate tests ====================
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_whenNoHeaders() {
+    void authenticate_shouldReturnEmptyList_whenNoHeaders() {
         Stash context = new Stash();
 
-        List<String> result = authorizer.getAuthToken(context);
+        List<String> result = authorizer.resolve(context);
 
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_whenHeadersIsNull() {
+    void authenticate_shouldReturnEmptyList_whenHeadersIsNull() {
         Stash context = new Stash();
         context.put("headers", null);
 
-        List<String> result = authorizer.getAuthToken(context);
+        List<String> result = authorizer.resolve(context);
 
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_whenNoAuthorizationHeader() {
+    void authenticate_shouldReturnEmptyList_whenNoAuthorizationHeader() {
         Stash context = new Stash();
         context.put("headers", Map.of("content-type", "application/json"));
 
-        List<String> result = authorizer.getAuthToken(context);
+        List<String> result = authorizer.resolve(context);
 
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_whenAuthorizationIsNotBearer() {
+    void authenticate_shouldReturnEmptyList_whenAuthorizationIsNotBearer() {
         Stash context = new Stash();
         context.put("headers", Map.of("authorization", "Basic sometoken"));
 
-        List<String> result = authorizer.getAuthToken(context);
+        List<String> result = authorizer.resolve(context);
 
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void getAuthToken_shouldExtractSubject_fromValidBearerToken() {
+    void authenticate_shouldExtractSubject_fromValidBearerToken() {
         String token = createTestToken(TEST_SUB);
         Stash context = new Stash();
         context.put("headers", Map.of("authorization", "Bearer " + token));
 
-        List<String> result = authorizer.getAuthToken(context);
+        List<String> result = authorizer.resolve(context);
 
         assertEquals(1, result.size());
         assertEquals(TEST_SUB, result.get(0));
     }
 
     @Test
-    void getAuthToken_shouldWorkWithStashHeaders() {
+    void authenticate_shouldWorkWithStashHeaders() {
         String token = createTestToken(TEST_SUB);
         Stash headers = new Stash();
         headers.put("authorization", "Bearer " + token);
@@ -108,24 +111,24 @@ class JWTSubAuthorizerTest {
         Stash context = new Stash();
         context.put("headers", headers);
 
-        List<String> result = authorizer.getAuthToken(context);
+        List<String> result = authorizer.resolve(context);
 
         assertEquals(1, result.size());
         assertEquals(TEST_SUB, result.get(0));
     }
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_whenTokenHasInvalidFormat() {
+    void authenticate_shouldReturnEmptyList_whenTokenHasInvalidFormat() {
         Stash context = new Stash();
         context.put("headers", Map.of("authorization", "Bearer invalid-token-no-dots"));
 
-        List<String> result = authorizer.getAuthToken(context);
+        List<String> result = authorizer.resolve(context);
 
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_whenTokenPayloadIsInvalidJson() {
+    void authenticate_shouldReturnEmptyList_whenTokenPayloadIsInvalidJson() {
         // Create token with invalid base64 payload
         String header = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString("{\"alg\":\"HS256\"}".getBytes());
@@ -138,13 +141,13 @@ class JWTSubAuthorizerTest {
         Stash context = new Stash();
         context.put("headers", Map.of("authorization", "Bearer " + token));
 
-        List<String> result = authorizer.getAuthToken(context);
+        List<String> result = authorizer.resolve(context);
 
         assertTrue(result.isEmpty());
     }
 
     @Test
-    void getAuthToken_shouldReturnEmptyList_whenTokenHasNoSubClaim() {
+    void authenticate_shouldReturnEmptyList_whenTokenHasNoSubClaim() {
         // Create token without sub claim
         String header = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString("{\"alg\":\"HS256\"}".getBytes());
@@ -158,64 +161,73 @@ class JWTSubAuthorizerTest {
         Stash context = new Stash();
         context.put("headers", Map.of("authorization", "Bearer " + token));
 
-        List<String> result = authorizer.getAuthToken(context);
+        List<String> result = authorizer.resolve(context);
 
         assertTrue(result.isEmpty());
     }
 
     // ==================== isAuthorized tests ====================
 
+    private Envelope marked(java.util.List<String> tokens) {
+        return new Envelope("id", new Stash(), Instant.now(), false, TokenMark.of(tokens));
+    }
+
     @Test
-    void isAuthorized_shouldReturnTrue_whenAuthorizedTokensIsNull() {
+    void isAuthorized_shouldReturnTrue_whenTheEnvelopeCarriesNoMark() {
         Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, null);
 
-        boolean result = authorizer.isAuthorized(List.of("some-cred"), envelope);
-
-        assertTrue(result);
+        assertTrue(authorizer.authenticate(new Stash()).isAuthorized(Operation.READ, envelope));
     }
 
     @Test
-    void isAuthorized_shouldReturnTrue_whenAuthorizedTokensIsEmpty() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of());
-
-        boolean result = authorizer.isAuthorized(List.of("some-cred"), envelope);
-
-        assertTrue(result);
+    void isAuthorized_shouldReturnTrue_whenTheMarkIsEmpty() {
+        assertTrue(new TokenSession(List.of("some-cred"))
+                .isAuthorized(Operation.READ, marked(List.of())));
     }
 
     @Test
-    void isAuthorized_shouldReturnTrue_whenCredentialsMatchAuthorizedTokens() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of("user1", "user2"));
-
-        boolean result = authorizer.isAuthorized(List.of("user1"), envelope);
-
-        assertTrue(result);
+    void isAuthorized_shouldReturnTrue_whenCredentialsMatchTheMark() {
+        assertTrue(new TokenSession(List.of("user1"))
+                .isAuthorized(Operation.READ, marked(List.of("user1", "user2"))));
     }
 
     @Test
     void isAuthorized_shouldReturnTrue_whenAnyCredentialMatches() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of("user1", "user2"));
-
-        boolean result = authorizer.isAuthorized(List.of("other", "user2"), envelope);
-
-        assertTrue(result);
+        assertTrue(new TokenSession(List.of("other", "user2"))
+                .isAuthorized(Operation.READ, marked(List.of("user1", "user2"))));
     }
 
     @Test
     void isAuthorized_shouldReturnFalse_whenNoCredentialsMatch() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of("user1", "user2"));
-
-        boolean result = authorizer.isAuthorized(List.of("user3"), envelope);
-
-        assertFalse(result);
+        assertFalse(new TokenSession(List.of("user3"))
+                .isAuthorized(Operation.READ, marked(List.of("user1", "user2"))));
     }
 
     @Test
-    void isAuthorized_shouldReturnFalse_whenCredentialsIsEmpty() {
-        Envelope envelope = new Envelope("id", new Stash(), Instant.now(), false, List.of("user1"));
+    void isAuthorized_shouldReturnFalse_whenTheCallerHoldsNoTokens() {
+        assertFalse(new TokenSession(List.of())
+                .isAuthorized(Operation.READ, marked(List.of("user1"))));
+    }
 
-        boolean result = authorizer.isAuthorized(List.of(), envelope);
+    @Test
+    void stamp_shouldMarkTheRecordWithTheCallersOwnTokens() {
+        Envelope stamped = new TokenSession(List.of("user1"))
+                .stamp(new Envelope("id", new Stash(), Instant.now(), false, null));
 
-        assertFalse(result);
+        assertEquals(List.of("user1"), TokenMark.tokensOf(stamped));
+    }
+
+    @Test
+    void stamp_shouldLeaveAnUncredentialedWriteMarkless() {
+        Envelope stamped = authorizer.authenticate(new Stash())
+                .stamp(new Envelope("id", new Stash(), Instant.now(), false, null));
+
+        assertTrue(TokenMark.tokensOf(stamped).isEmpty());
+    }
+
+    @Test
+    void systemSession_shouldSeeEverything() {
+        assertTrue(authorizer.systemSession()
+                .isAuthorized(Operation.READ, marked(List.of("nobody-holds-this"))));
     }
 }

@@ -254,7 +254,7 @@ public class Main {
 
         Auth auth = new NoAuth();
         Map<String, Plugin> plugins = new HashMap<>();
-        plugins.put("mongo", new MongoPlugin(auth));
+        plugins.put("mongo", new MongoPlugin());
 
         logger.info("Initializing server on port {}", port);
 

@@ -1,19 +1,13 @@
 package com.meshql.repositories.rdbms;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meshql.core.Envelope;
 import com.tailoredshapes.stash.Stash;
-import com.tailoredshapes.underbar.ocho.Die;
-import com.tailoredshapes.underbar.ocho.UnderBar;
 
-import java.sql.*;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.*;
-
-import static com.tailoredshapes.underbar.ocho.UnderBar.list;
-import static com.tailoredshapes.underbar.ocho.UnderBar.map;
 
 /**
  * Utility class for converting between JDBC ResultSet objects and domain
@@ -24,6 +18,9 @@ public interface Converters {
 
     /**
      * Converts a ResultSet row to an Envelope object.
+     *
+     * <p>The {@code auth} column holds the auth plugin's mark, written verbatim
+     * and read back verbatim. Nothing in this package interprets it.
      *
      * @param rs ResultSet positioned at the row to convert
      * @return Envelope object
@@ -38,21 +35,22 @@ public interface Converters {
         Instant createdAt = rs.getTimestamp("created_at").toInstant();
         boolean deleted = rs.getBoolean("deleted");
 
-        // Convert JSON payload to Stash
         Stash payload = Stash.parseJSON(rs.getString("payload"));
 
-        // Get authorized tokens
-        List<String> authorizedTokens;
+        return new Envelope(id, payload, createdAt, deleted, parseAuth(rs.getString("auth")));
+    }
 
-        try {
-           Array tokenArray = rs.getArray("authorized_tokens");
-           authorizedTokens = tokenArray == null ? list() : Arrays.asList((String[]) (tokenArray.getArray()));
-        } catch (SQLFeatureNotSupportedException se){
-            String tokenString = rs.getString("authorized_tokens");
-            authorizedTokens = Die.rethrow(() -> OBJECT_MAPPER.readValue(tokenString, new TypeReference<>(){}));
+    /** Read the stored mark back into the shape the plugin stamped. */
+    static Stash parseAuth(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
         }
+        return Stash.parseJSON(json);
+    }
 
-        return new Envelope(id, payload, createdAt, deleted, authorizedTokens);
+    /** Render the plugin's mark for storage, verbatim. */
+    static String writeAuth(Stash auth) {
+        return auth == null ? null : auth.toJSONString();
     }
 
     /**

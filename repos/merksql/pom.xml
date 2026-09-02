@@ -13,7 +13,13 @@
     <artifactId>merksql</artifactId>
 
     <properties>
-        <merksql.native.lib.path></merksql.native.lib.path>
+        <!--
+            Where libmerksql_jni.so lives. It defaults to the copy checked in under
+            examples/, so `mvn test` runs this module's tests rather than skipping
+            them: a suite that is skipped by default is a suite nobody notices going
+            red. Override the property to point at a build of your own.
+        -->
+        <merksql.native.lib.path>${project.basedir}/../../examples/egg-economy-queue/lib</merksql.native.lib.path>
     </properties>
 
     <dependencies>
@@ -81,36 +87,13 @@
         </dependency>
     </dependencies>
 
-    <profiles>
-        <profile>
-            <id>native-tests</id>
-            <activation>
-                <property>
-                    <name>merksql.native.lib.path</name>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <skipTests>false</skipTests>
-                            <argLine>-Djava.library.path=${merksql.native.lib.path}</argLine>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
-
     <build>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <skipTests>true</skipTests>
+                    <argLine>@{argLine} -Djava.library.path=${merksql.native.lib.path}</argLine>
                 </configuration>
             </plugin>
         </plugins>

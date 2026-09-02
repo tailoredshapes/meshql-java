@@ -1,7 +1,9 @@
 package com.meshql.auth.casbin;
 
+import com.meshql.auth.token.Identity;
+import com.meshql.auth.token.TokenSession;
 import com.meshql.core.Auth;
-import com.meshql.core.Envelope;
+import com.meshql.core.AuthSession;
 import com.tailoredshapes.stash.Stash;
 import org.casbin.jcasbin.main.Enforcer;
 import org.slf4j.Logger;
@@ -12,23 +14,19 @@ import java.util.List;
 import static com.tailoredshapes.underbar.ocho.UnderBar.list;
 
 /**
- * Casbin-based authorizer that wraps another Auth implementation (typically JWT)
- * to provide role-based access control.
+ * Token plugin that resolves a caller's identity to roles, and uses the roles as
+ * the caller's tokens.
  *
- * This implementation:
- * 1. Delegates to the wrapped Auth to get the user identity (e.g., JWT sub claim)
- * 2. Uses Casbin's Enforcer to look up roles for that user
- * 3. Returns the roles as credentials for authorization checks
- *
- * The authorization check compares the user's roles against the document's
- * authorized_tokens list.
+ * <p>It wraps another {@link Auth} - typically {@code JWTSubAuthorizer} - to get
+ * the identity, then asks Casbin which roles that subject holds. The rule it
+ * authorizes by is {@link TokenSession}, shared with every other token plugin.
  *
  * <h2>Why {@code enforcer.enforce(...)} is never called</h2>
  *
  * It is not an oversight. MeshQL resolves identity to capabilities <em>once</em>,
- * at the boundary, and propagates the result; every check below that point is a
- * local intersection of that token set against a record's authorized_tokens.
- * Casbin's job here is subject -&gt; role resolution and nothing else.
+ * at the boundary, and propagates the resulting session; every check below that
+ * point is a local question asked of that session. Casbin's job here is
+ * subject -&gt; role resolution and nothing else.
  *
  * <p>Adding a deeper {@code enforce} is not defence in depth. It recomputes a
  * decision already made, at every layer that repeats it, and against a remote
@@ -46,56 +44,52 @@ public class CasbinAuth implements Auth {
     private static final Logger logger = LoggerFactory.getLogger(CasbinAuth.class);
 
     private final Enforcer enforcer;
-    private final Auth wrappedAuth;
+    private final Identity identity;
 
     /**
      * Create a CasbinAuth with an existing Enforcer and wrapped Auth.
      *
      * @param enforcer The Casbin Enforcer configured with model and policy
-     * @param wrappedAuth The underlying Auth (e.g., JWTSubAuthorizer) to get user identity
+     * @param identity Resolves the request to a subject (e.g., JWTSubAuthorizer)
      */
-    public CasbinAuth(Enforcer enforcer, Auth wrappedAuth) {
+    public CasbinAuth(Enforcer enforcer, Identity identity) {
         this.enforcer = enforcer;
-        this.wrappedAuth = wrappedAuth;
+        this.identity = identity;
     }
 
     /**
      * Factory method to create CasbinAuth from model and policy file paths.
-     *
-     * @param modelPath Path to the Casbin model file (e.g., "model.conf")
-     * @param policyPath Path to the Casbin policy file (e.g., "policy.csv")
-     * @param wrappedAuth The underlying Auth to get user identity
-     * @return A configured CasbinAuth instance
      */
-    public static CasbinAuth create(String modelPath, String policyPath, Auth wrappedAuth) {
+    public static CasbinAuth create(String modelPath, String policyPath, Identity identity) {
         Enforcer enforcer = new Enforcer(modelPath, policyPath);
-        return new CasbinAuth(enforcer, wrappedAuth);
+        return new CasbinAuth(enforcer, identity);
+    }
+
+    @Override
+    public AuthSession authenticate(Stash requestContext) {
+        return new TokenSession(roles(requestContext));
+    }
+
+    @Override
+    public AuthSession systemSession() {
+        return TokenSession.system();
     }
 
     /**
-     * Get the roles for the authenticated user.
+     * The roles the request's caller holds, which are the tokens it presents.
      *
-     * 1. Delegates to wrapped auth to get user identity (e.g., "user123" from JWT sub)
-     * 2. Looks up roles for that user in Casbin (e.g., ["admin", "editor"])
-     * 3. Returns the roles as the auth tokens
-     *
-     * @param context The request context containing auth headers
-     * @return List of roles for the user, or empty list if no user or roles found
+     * <p>An unknown subject, or none at all, holds no roles and so reaches public
+     * records and nothing else.
      */
-    @Override
-    public List<String> getAuthToken(Stash context) {
+    List<String> roles(Stash requestContext) {
         try {
-            // Get the user identity from the wrapped auth (e.g., JWT sub claim)
-            List<String> userIds = wrappedAuth.getAuthToken(context);
+            List<String> userIds = identity.resolve(requestContext);
 
             if (userIds == null || userIds.isEmpty()) {
                 return list();
             }
 
-            // Get the first user ID (typically just one from JWT sub)
             String userId = userIds.get(0);
-
-            // Look up roles for this user in Casbin
             List<String> roles = enforcer.getRolesForUser(userId);
 
             if (roles == null || roles.isEmpty()) {
@@ -111,24 +105,7 @@ public class CasbinAuth implements Auth {
     }
 
     /**
-     * Check if the credentials (roles) authorize access to the data.
-     *
-     * <p>Delegates to {@link Auth#tokensVisibleTo}, the one rule every read surface
-     * shares, so the Searcher and the Repository cannot drift apart.
-     *
-     * @param credentials List of roles from getAuthToken
-     * @param data The envelope containing authorized_tokens
-     * @return true if any role matches authorized_tokens, or if authorized_tokens is empty
-     */
-    @Override
-    public boolean isAuthorized(List<String> credentials, Envelope data) {
-        return Auth.tokensVisibleTo(data.authorizedTokens(), credentials);
-    }
-
-    /**
      * Get the underlying Casbin Enforcer for advanced use cases.
-     *
-     * @return The Casbin Enforcer
      */
     public Enforcer getEnforcer() {
         return enforcer;

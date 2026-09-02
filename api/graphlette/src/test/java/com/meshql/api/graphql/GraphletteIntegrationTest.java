@@ -73,11 +73,11 @@ class GraphletteIntegrationTest {
                 "tags", list("test", "graphql")
         );
 
-        InMemorySearcher searcher = new InMemorySearcher(store, auth);
+        InMemorySearcher searcher = new InMemorySearcher(store);
 
         inMemoryRepository.create(new Envelope(
             "testobj1", payload, null, false, null
-        ), list());
+        ), auth.systemSession());
 
 
         RootConfig rootConfig = RootConfig.builder()

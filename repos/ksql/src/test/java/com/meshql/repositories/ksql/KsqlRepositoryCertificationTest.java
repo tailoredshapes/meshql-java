@@ -27,7 +27,7 @@ public class KsqlRepositoryCertificationTest extends RepositoryCertification {
         String topic = "test_repo_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
 
         KsqlRepository ksqlRepository = new KsqlRepository(
-                producer, ksqlClient, KsqlTestEnvironment.getBootstrapServers(), topic, new NoAuth());
+                producer, ksqlClient, KsqlTestEnvironment.getBootstrapServers(), topic);
         ksqlRepository.initialize(1, 1);
 
         repository = ksqlRepository;

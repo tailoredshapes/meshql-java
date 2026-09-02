@@ -249,7 +249,7 @@ public class Main {
 
         Auth auth = new NoAuth();
         Map<String, Plugin> plugins = new HashMap<>();
-        plugins.put("ksql", new KsqlPlugin(auth));
+        plugins.put("ksql", new KsqlPlugin());
 
         logger.info("Initializing server on port {}", port);
 

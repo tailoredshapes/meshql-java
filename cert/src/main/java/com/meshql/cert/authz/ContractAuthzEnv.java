@@ -145,9 +145,21 @@ public class ContractAuthzEnv {
      * server module, the same way the rest of the certification harness does.
      */
     public Object buildService(Map<String, Plugin> plugins) throws Exception {
+        return buildService(plugins, null);
+    }
+
+    /**
+     * Start the server, optionally with an auth plugin the caller names rather than
+     * one the server resolves from configuration. Uses reflection to avoid a
+     * compile-time dependency on the server module, the same way the rest of the
+     * certification harness does.
+     */
+    public Object buildService(Map<String, Plugin> plugins, com.meshql.core.Auth auth) throws Exception {
         Config config = buildConfig();
         Class<?> serverClass = Class.forName("com.meshql.server.Server");
-        Object server = serverClass.getConstructor(Map.class).newInstance(plugins);
+        Object server = serverClass
+                .getConstructor(Map.class, com.meshql.core.Auth.class)
+                .newInstance(plugins, auth);
         serverClass.getMethod("init", Config.class).invoke(server, config);
         awaitReady();
         logger.debug("Contract authorization server started on port {}", port);

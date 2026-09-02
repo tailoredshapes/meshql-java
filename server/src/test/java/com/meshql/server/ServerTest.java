@@ -157,7 +157,7 @@ class ServerTest {
         }
 
         @Override
-        public Repository createRepository(StorageConfig config, Auth auth) {
+        public Repository createRepository(StorageConfig config) {
             return new TestRepository();
         }
 
@@ -172,7 +172,7 @@ class ServerTest {
      */
     private static class TestSearcher implements Searcher {
         @Override
-        public Stash find(com.github.jknack.handlebars.Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
+        public Stash find(com.github.jknack.handlebars.Template queryTemplate, Stash args, AuthSession session, long timestamp) {
             Stash result = new Stash();
             result.put("id", "test123");
             result.put("name", "Test Entity");
@@ -180,8 +180,8 @@ class ServerTest {
         }
 
         @Override
-        public List<Stash> findAll(com.github.jknack.handlebars.Template queryTemplate, Stash args, List<String> tokens, long timestamp) {
-            return List.of(find(queryTemplate, args, tokens, timestamp));
+        public List<Stash> findAll(com.github.jknack.handlebars.Template queryTemplate, Stash args, AuthSession session, long timestamp) {
+            return List.of(find(queryTemplate, args, session, timestamp));
         }
     }
 
@@ -190,45 +190,45 @@ class ServerTest {
      */
     private static class TestRepository implements Repository {
         @Override
-        public Envelope create(Envelope envelope, List<String> tokens) {
-            return new Envelope(
+        public Envelope create(Envelope envelope, AuthSession session) {
+            return session.stamp(new Envelope(
                 "test123",
                 envelope.payload(),
                 Instant.now(),
                 false,
-                Collections.emptyList()
-            );
+                null
+            ));
         }
 
         @Override
-        public List<Envelope> createMany(List<Envelope> envelopes, List<String> tokens) {
+        public List<Envelope> createMany(List<Envelope> envelopes, AuthSession session) {
             return envelopes.stream()
-                .map(e -> create(e, tokens))
+                .map(e -> create(e, session))
                 .collect(java.util.stream.Collectors.toList());
         }
 
         @Override
-        public Optional<Envelope> read(String id, List<String> tokens, Instant createdAt) {
+        public Optional<Envelope> read(String id, AuthSession session, Instant createdAt) {
             return Optional.empty();
         }
 
         @Override
-        public List<Envelope> readMany(List<String> ids, List<String> tokens) {
+        public List<Envelope> readMany(List<String> ids, AuthSession session) {
             return Collections.emptyList();
         }
 
         @Override
-        public Boolean remove(String id, List<String> tokens) {
+        public Boolean remove(String id, AuthSession session) {
             return true;
         }
 
         @Override
-        public Map<String, Boolean> removeMany(List<String> ids, List<String> tokens) {
+        public Map<String, Boolean> removeMany(List<String> ids, AuthSession session) {
             return Collections.emptyMap();
         }
 
         @Override
-        public List<Envelope> list(List<String> tokens) {
+        public List<Envelope> list(AuthSession session) {
             return Collections.emptyList();
         }
     }

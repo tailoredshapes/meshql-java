@@ -1,7 +1,9 @@
 package com.meshql.auth.jwt;
 
+import com.meshql.auth.token.Identity;
+import com.meshql.auth.token.TokenSession;
 import com.meshql.core.Auth;
-import com.meshql.core.Envelope;
+import com.meshql.core.AuthSession;
 import com.tailoredshapes.stash.Stash;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,21 +15,43 @@ import java.util.Map;
 import static com.tailoredshapes.underbar.ocho.UnderBar.list;
 
 /**
- * JWT-based authorizer that extracts the 'sub' claim from a JWT token.
+ * Token plugin that takes the caller's single token from a JWT's {@code sub} claim.
  *
- * IMPORTANT: This implementation does NOT verify the JWT signature.
- * It is designed for enterprise environments where JWT validation
- * is handled by upstream services (API gateway, Istio, Kong, etc.)
- * before the request reaches this application.
+ * <p>IMPORTANT: this implementation does NOT verify the JWT signature. It is
+ * designed for deployments where an upstream gateway (API gateway, Istio, Kong)
+ * has already authenticated the caller. The edge authenticates; the plugin
+ * authorizes.
  *
- * The token is assumed to be pre-validated; we only decode and extract claims.
+ * <p>The rule it authorizes by lives in {@link TokenSession}, shared with every
+ * other token plugin, so there is one implementation of it rather than one per
+ * caller.
  */
-public class JWTSubAuthorizer implements Auth {
+public class JWTSubAuthorizer implements Auth, Identity {
     private static final Logger logger = LoggerFactory.getLogger(JWTSubAuthorizer.class);
 
     @Override
-    public List<String> getAuthToken(Stash context) {
+    public AuthSession authenticate(Stash requestContext) {
+        return new TokenSession(resolve(requestContext));
+    }
+
+    @Override
+    public AuthSession systemSession() {
+        return TokenSession.system();
+    }
+
+    /**
+     * The tokens this request's caller holds: the JWT subject, or none.
+     *
+     * <p>No credentials resolves to no tokens, which reaches public records and
+     * nothing else. It is not a bypass, and a reader that needs to see everything
+     * asks for {@link #systemSession()}.
+     */
+    @Override
+    public List<String> resolve(Stash context) {
         try {
+            if (context == null) {
+                return list();
+            }
             Object headersObj = context.get("headers");
             if (headersObj == null) {
                 return list();
@@ -70,17 +94,6 @@ public class JWTSubAuthorizer implements Auth {
             logger.error("Failed to extract auth token", e);
             return list();
         }
-    }
-
-    /**
-     * Check whether the credentials authorize access to the data.
-     *
-     * <p>Delegates to {@link Auth#tokensVisibleTo}, the one rule every read surface
-     * shares, so the Searcher and the Repository cannot drift apart.
-     */
-    @Override
-    public boolean isAuthorized(List<String> credentials, Envelope data) {
-        return Auth.tokensVisibleTo(data.authorizedTokens(), credentials);
     }
 
     /**

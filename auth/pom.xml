@@ -15,6 +15,7 @@
     <packaging>pom</packaging>
 
     <modules>
+        <module>token</module>
         <module>jwt</module>
         <module>casbin</module>
         <module>noop</module>

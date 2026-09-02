@@ -53,7 +53,7 @@ public class ApostropheInQueryTemplateTest {
         repository.initialize();
 
         Auth noAuth = new NoAuth();
-        searcher = new SQLiteSearcher(dataSource, "apostrophe_test", noAuth);
+        searcher = new SQLiteSearcher(dataSource, "apostrophe_test");
     }
 
     private Template findByName() {
@@ -63,6 +63,10 @@ public class ApostropheInQueryTemplateTest {
     /**
      * What the searcher actually renders. Documented so nobody has to guess again.
      */
+    /** The caller these scenarios run as: an ordinary token holder. */
+    private static final com.meshql.core.AuthSession SESSION =
+            new com.meshql.auth.token.TokenSession(list("TOKEN"));
+
     @Test
     public void templateEscapesApostropheForSqlNotForHtml() {
         String rendered = rethrow(() -> findByName().apply(stash("name", "O'Brien")));
@@ -97,10 +101,10 @@ public class ApostropheInQueryTemplateTest {
     @Test
     public void searcherFindsAValueContainingAnApostrophe() {
         repository.create(
-                new Envelope(null, stash("name", "O'Brien", "type", "person"), null, false, list()),
-                list());
+                new Envelope(null, stash("name", "O'Brien", "type", "person"), null, false, null),
+                SESSION);
 
-        Stash found = searcher.find(findByName(), stash("name", "O'Brien"), list(),
+        Stash found = searcher.find(findByName(), stash("name", "O'Brien"), SESSION,
                 Instant.now().toEpochMilli());
 
         System.out.println("[apostrophe] singleton result: " + found);
@@ -115,16 +119,16 @@ public class ApostropheInQueryTemplateTest {
      */
     @Test
     public void searcherFindsAllValuesContainingAnApostrophe() {
-        repository.create(new Envelope(null, stash("name", "O'Brien", "type", "irish'sur"), null, false, list()),
-                list());
-        repository.create(new Envelope(null, stash("name", "O'Connor", "type", "irish'sur"), null, false, list()),
-                list());
-        repository.create(new Envelope(null, stash("name", "Smith", "type", "plain"), null, false, list()),
-                list());
+        repository.create(new Envelope(null, stash("name", "O'Brien", "type", "irish'sur"), null, false, null),
+                SESSION);
+        repository.create(new Envelope(null, stash("name", "O'Connor", "type", "irish'sur"), null, false, null),
+                SESSION);
+        repository.create(new Envelope(null, stash("name", "Smith", "type", "plain"), null, false, null),
+                SESSION);
 
         Template findAllByType = searcher.compileQuery("json_extract(payload, '$.type') = '{{type}}'");
 
-        List<Stash> found = searcher.findAll(findAllByType, stash("type", "irish'sur"), list(),
+        List<Stash> found = searcher.findAll(findAllByType, stash("type", "irish'sur"), SESSION,
                 Instant.now().toEpochMilli());
 
         System.out.println("[apostrophe] vector result size: " + found.size() + " -> " + found);
@@ -138,11 +142,11 @@ public class ApostropheInQueryTemplateTest {
     @Test
     public void searcherFindsValuesContainingAmpersandsAndAngleBrackets() {
         for (String name : List.of("Tom & Jerry", "a<b", "a>b", "say \"hi\"")) {
-            repository.create(new Envelope(null, stash("name", name), null, false, list()), list());
+            repository.create(new Envelope(null, stash("name", name), null, false, null), SESSION);
         }
 
         for (String name : List.of("Tom & Jerry", "a<b", "a>b", "say \"hi\"")) {
-            Stash found = searcher.find(findByName(), stash("name", name), list(),
+            Stash found = searcher.find(findByName(), stash("name", name), SESSION,
                     Instant.now().toEpochMilli());
             System.out.println("[apostrophe] lookup " + name + " -> " + found);
             assertFalse(found.isEmpty(), "Searching for '" + name + "' returned nothing");
@@ -159,7 +163,7 @@ public class ApostropheInQueryTemplateTest {
      */
     @Test
     public void aQuoteInAValueStillCannotEndTheLiteral() {
-        repository.create(new Envelope(null, stash("name", "Smith"), null, false, list()), list());
+        repository.create(new Envelope(null, stash("name", "Smith"), null, false, null), SESSION);
 
         String breakout = "' OR 1=1 --";
 
@@ -167,7 +171,7 @@ public class ApostropheInQueryTemplateTest {
         System.out.println("[apostrophe] breakout attempt renders as: " + rendered);
         assertEquals("json_extract(payload, '$.name') = ''' OR 1=1 --'", rendered);
 
-        Stash found = searcher.find(findByName(), stash("name", breakout), list(),
+        Stash found = searcher.find(findByName(), stash("name", breakout), SESSION,
                 Instant.now().toEpochMilli());
 
         System.out.println("[apostrophe] breakout attempt result: " + found);
@@ -180,9 +184,9 @@ public class ApostropheInQueryTemplateTest {
      */
     @Test
     public void searcherRoundTripsAValueThatIsJustAQuote() {
-        repository.create(new Envelope(null, stash("name", "'"), null, false, list()), list());
+        repository.create(new Envelope(null, stash("name", "'"), null, false, null), SESSION);
 
-        Stash found = searcher.find(findByName(), stash("name", "'"), list(),
+        Stash found = searcher.find(findByName(), stash("name", "'"), SESSION,
                 Instant.now().toEpochMilli());
 
         System.out.println("[apostrophe] lone-quote result: " + found);
