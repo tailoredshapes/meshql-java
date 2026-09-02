@@ -1,61 +1,34 @@
-# MeshQL
+# meshql-java
 
-Define schemas. Wire resolvers. Get a full data API with REST, GraphQL, and federation — no boilerplate.
+The Java implementation of **[meshql](https://git.tildarc.com/tailoredshapes/meshql)**.
 
-MeshQL is a Java 21 framework for building data services where every entity gets its own REST endpoint, its own GraphQL endpoint, and federation resolvers that connect them. You write configuration, not plumbing.
+What meshql *is* — the model, the envelope, temporal reads, honesty, how
+authorization works, and the Gherkin contract every storage plugin is certified
+against — is defined once in the [contract repository][contract], which this
+repository runs as a git submodule at `cert/src/test/resources/features/contract`.
+Read that first. This README is the *how*: what is specific to running meshql on
+the JVM.
 
-## What You Get
+[contract]: https://git.tildarc.com/tailoredshapes/meshql
 
-```java
-Config config = Config.builder()
-    .port(3033)
-    .graphlette(GraphletteConfig.builder()
-        .path("/item/graph")
-        .storage(mongoConfig)
-        .schema("/config/item.graphql")
-        .rootConfig(RootConfig.builder()
-            .singleton("getById", "{\"id\": \"{{id}}\"}")
-            .vector("getByCategory", "{\"payload.category\": \"{{category}}\"}")
-            .vectorResolver("reviews", null, "getByItem",
-                platformUrl + "/review/graph")))
-    .restlette(RestletteConfig.builder()
-        .path("/item/api")
-        .storage(mongoConfig)
-        .schema(loadJsonSchema("/config/item.schema.json")))
-    .build();
+## What is specific to Java
 
-Server server = new Server(Map.of("mongo", new MongoPlugin(auth)));
-server.init(config);
-```
+- **Jetty 12 with virtual threads** (Project Loom). Each request runs on a
+  lightweight virtual thread, so federation calls and database queries do not
+  block a platform thread.
+- **Swagger/OpenAPI** is generated on every restlette. The other two
+  implementations do not do this.
+- **Mesher**, a CLI that points at a legacy database and generates a meshql
+  anti-corruption layer, lives here and nowhere else.
+- **A Groovy DSL** is available as an alternative to the builder configuration.
+- **Storage plugins**: PostgreSQL, MongoDB, SQLite, ksqlDB, MerkSQL, and
+  in-memory.
 
-That gives you:
+### Where this implementation diverges
 
-- **GraphQL** at `/item/graph` with `getById`, `getByCategory`, and federated `reviews`
-- **REST** at `/item/api` with `POST`, `GET`, `PUT`, `DELETE`, bulk operations, and Swagger docs
-- **JSON Schema validation** on all REST writes
-- **Temporal queries** — every query supports `at: Float` for point-in-time reads
-- **Health checks** at `/health` and `/ready`
-
-## Core Concepts
-
-| Concept | What It Does |
-|:--------|:-------------|
-| **Graphlette** | GraphQL endpoint for an entity — queries, federation resolvers |
-| **Restlette** | REST endpoint for an entity — CRUD, bulk ops, Swagger, JSON Schema validation |
-| **Resolver** | Connects entities across graphlettes (singleton for 1:1, vector for 1:N) |
-| **Envelope** | Internal wrapper: `{id, payload, createdAt, deleted, authorizedTokens}` |
-| **Plugin** | Storage backend factory (MongoDB, PostgreSQL, SQLite, in-memory) |
-
-## Features
-
-- **Dual APIs**: REST and GraphQL from the same entity definition
-- **Federation**: Resolvers connect entities across graphlettes via HTTP or in-process calls
-- **Multiple datastores**: PostgreSQL, MongoDB, SQLite, in-memory — mix and match
-- **Pluggable auth**: JWT (decode-only, for gateway-validated tokens), Casbin RBAC, NoAuth
-- **Temporal queries**: Point-in-time reads on any query (`at` parameter)
-- **JSON Schema validation**: REST writes validated against schema files
-- **Virtual threads**: Jetty 12 + Project Loom for efficient concurrency
-- **Swagger/OpenAPI**: Auto-generated docs on every REST endpoint
+- **No `/<id>/versions` endpoint.** Rust exposes the version history of a
+  document over REST; Java does not yet. Nothing in the contract certifies it,
+  which is why the gap went unnoticed.
 
 ## Examples
 
