@@ -9,9 +9,13 @@ import static io.cucumber.junit.platform.engine.Constants.GLUE_PROPERTY_NAME;
 import static io.cucumber.junit.platform.engine.Constants.PLUGIN_PROPERTY_NAME;
 
 /**
- * This backend against the shared contract's restlette JSON Schema suite, on the
- * same server and hooks as the authorization suite: the scenario's schema becomes
- * the widget restlette's configured schema.
+ * The shared contract's restlette JSON Schema suite ({@code @restlette}), run once
+ * for meshql-java: validation happens in the restlette before anything reaches a
+ * store, so it does not depend on the storage plugin, and the contract asks for one
+ * run against any one store. The in-memory store is the cheapest. The scenario's
+ * schema becomes the widget restlette's configured schema, on the same server and
+ * hooks as the authorization suite. No per-backend runner selects
+ * {@code features/schema}.
  */
 @Suite
 @IncludeEngines("cucumber")
