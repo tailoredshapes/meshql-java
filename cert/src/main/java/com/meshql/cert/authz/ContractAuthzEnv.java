@@ -119,6 +119,15 @@ public class ContractAuthzEnv {
     }
 
     public Config buildConfig() throws IOException {
+        return buildConfig(jsonSchema());
+    }
+
+    /**
+     * The configuration with the widget restlette validating against
+     * {@code restletteSchema}: the same restlette configuration a deployment
+     * writes, so {@code schema.feature} certifies the real validation path.
+     */
+    public Config buildConfig(JsonSchema restletteSchema) throws IOException {
         return Config.builder()
                 .port(port)
                 // Authorization is configured the documented way: Casbin params on the
@@ -136,7 +145,7 @@ public class ContractAuthzEnv {
                         .path(REST_PATH)
                         .port(port)
                         .storage(storage)
-                        .schema(jsonSchema()))
+                        .schema(restletteSchema))
                 .build();
     }
 
@@ -155,7 +164,16 @@ public class ContractAuthzEnv {
      * certification harness does.
      */
     public Object buildService(Map<String, Plugin> plugins, com.meshql.core.Auth auth) throws Exception {
-        Config config = buildConfig();
+        return buildService(plugins, auth, null);
+    }
+
+    /**
+     * Start the server with the widget restlette validating against
+     * {@code restletteSchema}, or against the permissive default when it is null.
+     */
+    public Object buildService(Map<String, Plugin> plugins, com.meshql.core.Auth auth, JsonSchema restletteSchema)
+            throws Exception {
+        Config config = buildConfig(restletteSchema == null ? jsonSchema() : restletteSchema);
         Class<?> serverClass = Class.forName("com.meshql.server.Server");
         Object server = serverClass
                 .getConstructor(Map.class, com.meshql.core.Auth.class)

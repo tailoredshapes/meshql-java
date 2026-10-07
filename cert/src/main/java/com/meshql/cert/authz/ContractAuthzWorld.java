@@ -50,8 +50,17 @@ public class ContractAuthzWorld {
      * it wants.
      */
     public void startServer(Auth auth) throws Exception {
+        startServer(auth, null);
+    }
+
+    /**
+     * Start this scenario's server with the widget restlette enforcing
+     * {@code restletteSchema} ({@code schema.feature}), or the permissive default
+     * when it is null.
+     */
+    public void startServer(Auth auth, com.networknt.schema.JsonSchema restletteSchema) throws Exception {
         stopServer();
-        server = env.buildService(plugins, auth);
+        server = env.buildService(plugins, auth, restletteSchema);
         if (auth != null) {
             systemSession = auth.systemSession();
         }
@@ -86,4 +95,7 @@ public class ContractAuthzWorld {
 
     /** Status of the most recent delete. */
     public Integer deleteStatus;
+
+    /** Status of the most recent write a scenario expects might be refused. */
+    public Integer writeStatus;
 }
