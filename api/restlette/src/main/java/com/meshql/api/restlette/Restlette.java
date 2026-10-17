@@ -34,6 +34,10 @@ public class Restlette extends HttpServlet {
      * configured.
      */
     private final String basePath;
+    /** Create-only: PUT and DELETE on a document answer 405. See {@link RestletteConfig#frozen()}. */
+    private final boolean frozen;
+    /** Who may write at all. See {@link RestletteConfig#writers()}. */
+    private final WriterCheck writers;
 
     static {
         objectMapper.registerModule(new JavaTimeModule());
@@ -44,6 +48,8 @@ public class Restlette extends HttpServlet {
         this.basePath = apiPath.endsWith("/")
                 ? apiPath.substring(0, apiPath.length() - 1)
                 : apiPath;
+        this.frozen = rc.frozen();
+        this.writers = new WriterCheck(rc.writers());
         var port = rc.port();
 
         Plugin plugin = storageFactory.get(rc.storage().type);
@@ -65,6 +71,15 @@ public class Restlette extends HttpServlet {
         String method = request.getMethod();
 
         try {
+            // A restlette that names its writers refuses every other writer first,
+            // before it parses anything: who you are comes before what you sent.
+            if (isWrite(method) && !writers.permits(request)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.setContentType("application/json");
+                response.getWriter().write("{\"error\":\"Not authorized to write here\"}");
+                return;
+            }
+
             // Handle Swagger documentation routes
             if (pathInfo.equals("/api-docs/swagger.json")) {
                 handleSwaggerJson(response);
@@ -125,6 +140,13 @@ public class Restlette extends HttpServlet {
             if (pathInfo.startsWith("/") && pathInfo.length() > 1) {
                 String id = pathInfo.substring(1);
 
+                // A frozen entity is never replaced or removed; a new state is a new document.
+                if (frozen && ("PUT".equals(method) || "DELETE".equals(method))) {
+                    response.setHeader("Allow", "GET, POST");
+                    response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+                    return;
+                }
+
                 switch (method) {
                     case "GET":
                         crudHandler.read(request, response, id);
@@ -148,6 +170,10 @@ public class Restlette extends HttpServlet {
             response.setContentType("application/json");
             response.getWriter().write("{\"error\":\"Internal server error\"}");
         }
+    }
+
+    private static boolean isWrite(String method) {
+        return "POST".equals(method) || "PUT".equals(method) || "DELETE".equals(method);
     }
 
     private void handleSwaggerJson(HttpServletResponse response) throws IOException {
