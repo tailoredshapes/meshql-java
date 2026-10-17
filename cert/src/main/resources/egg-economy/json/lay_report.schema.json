@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "hen_id",
+    "coop_id",
+    "farm_id",
+    "eggs",
+    "timestamp"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "hen_id": {
+      "type": "string"
+    },
+    "coop_id": {
+      "type": "string"
+    },
+    "farm_id": {
+      "type": "string"
+    },
+    "eggs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "quality": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    }
+  }
+}

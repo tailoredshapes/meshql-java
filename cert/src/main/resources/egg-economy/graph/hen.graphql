@@ -1,0 +1,163 @@
+# hen graphlette. The type block is the same in every egg-economy schema: a query of one entity reaches the others by resolver,
+# and the schema it is sent to must know the types it selects. Only the Query block differs.
+
+type Query {
+  getById(id: ID, at: Float): Hen
+  getAll(at: Float): [Hen]
+  getByName(name: String, at: Float): [Hen]
+  getByCoop(id: ID, at: Float): [Hen]
+}
+
+type Farm {
+  id: ID
+  name: String
+  farm_type: String
+  zone: String
+  owner: String
+  coops: [Coop]
+  layReports: [LayReport]
+  henProductivity: [HenProductivity]
+  output: [FarmOutput]
+}
+
+type Coop {
+  id: ID
+  name: String
+  farm_id: String
+  capacity: Int
+  coop_type: String
+  farm: Farm
+  hens: [Hen]
+  layReports: [LayReport]
+}
+
+type Hen {
+  id: ID
+  name: String
+  coop_id: String
+  breed: String
+  dob: String
+  status: String
+  coop: Coop
+  layReports: [LayReport]
+  productivity: [HenProductivity]
+}
+
+type Container {
+  id: ID
+  name: String
+  container_type: String
+  capacity: Int
+  zone: String
+  deposits: [StorageDeposit]
+  withdrawals: [StorageWithdrawal]
+  transfersOut: [ContainerTransfer]
+  transfersIn: [ContainerTransfer]
+  consumptionReports: [ConsumptionReport]
+  inventory: [ContainerInventory]
+}
+
+type Consumer {
+  id: ID
+  name: String
+  consumer_type: String
+  zone: String
+  weekly_demand: Int
+  consumptionReports: [ConsumptionReport]
+}
+
+type LayReport {
+  id: ID
+  hen_id: String
+  coop_id: String
+  farm_id: String
+  eggs: Int
+  quality: String
+  timestamp: String
+  hen: Hen
+  coop: Coop
+  farm: Farm
+}
+
+type StorageDeposit {
+  id: ID
+  container_id: String
+  source_type: String
+  source_id: String
+  eggs: Int
+  timestamp: String
+  container: Container
+}
+
+type StorageWithdrawal {
+  id: ID
+  container_id: String
+  reason: String
+  eggs: Int
+  timestamp: String
+  container: Container
+}
+
+type ContainerTransfer {
+  id: ID
+  source_container_id: String
+  dest_container_id: String
+  eggs: Int
+  transport_method: String
+  timestamp: String
+  sourceContainer: Container
+  destContainer: Container
+}
+
+type ConsumptionReport {
+  id: ID
+  consumer_id: String
+  container_id: String
+  purpose: String
+  eggs: Int
+  timestamp: String
+  consumer: Consumer
+  container: Container
+}
+
+type HenProductivity {
+  id: ID
+  hen_id: String
+  farm_id: String
+  total_eggs: Int
+  quality_rate: Float
+  hen: Hen
+  farm: Farm
+}
+
+type FarmOutput {
+  id: ID
+  farm_id: String
+  total_eggs: Int
+  total_hens: Int
+  farm: Farm
+}
+
+type ContainerInventory {
+  id: ID
+  container_id: String
+  current_eggs: Int
+  total_deposits: Int
+  total_withdrawals: Int
+  total_transfers_in: Int
+  total_transfers_out: Int
+  total_consumed: Int
+  utilization_pct: Float
+  container: Container
+}
+
+type Rejection {
+  id: ID
+  event_entity: String
+  event_id: String
+  aggregate_id: String
+  actor: String
+  timestamp: String
+  reason: String
+  withdrawn: Boolean
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_container_id",
+    "dest_container_id",
+    "eggs",
+    "timestamp"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "source_container_id": {
+      "type": "string"
+    },
+    "dest_container_id": {
+      "type": "string"
+    },
+    "eggs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "transport_method": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    }
+  }
+}

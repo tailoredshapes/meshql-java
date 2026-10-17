@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "container_id",
+    "current_eggs",
+    "total_deposits",
+    "total_withdrawals",
+    "total_transfers_in",
+    "total_transfers_out",
+    "total_consumed",
+    "utilization_pct"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "container_id": {
+      "type": "string"
+    },
+    "current_eggs": {
+      "type": "integer"
+    },
+    "total_deposits": {
+      "type": "integer"
+    },
+    "total_withdrawals": {
+      "type": "integer"
+    },
+    "total_transfers_in": {
+      "type": "integer"
+    },
+    "total_transfers_out": {
+      "type": "integer"
+    },
+    "total_consumed": {
+      "type": "integer"
+    },
+    "utilization_pct": {
+      "type": "number"
+    }
+  }
+}

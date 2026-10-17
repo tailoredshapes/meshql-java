@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_entity",
+    "event_id",
+    "aggregate_id",
+    "reason",
+    "withdrawn"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "event_entity": {
+      "type": "string"
+    },
+    "event_id": {
+      "type": "string"
+    },
+    "aggregate_id": {
+      "type": "string"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "withdrawn": {
+      "type": "boolean"
+    }
+  }
+}

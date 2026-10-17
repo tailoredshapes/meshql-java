@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "consumer_type",
+    "zone"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "consumer_type": {
+      "type": "string"
+    },
+    "zone": {
+      "type": "string"
+    },
+    "weekly_demand": {
+      "type": "integer"
+    }
+  }
+}

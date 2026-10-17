@@ -149,9 +149,36 @@ cert/
 │               ├── integration/
 │               │   ├── repository.feature
 │               │   └── searcher.feature
-│               └── e2e/
-│                   └── farm.feature
+│               └── egg-economy/
+│                   └── egg_economy.feature   (symlink into the contract submodule)
 ```
+
+## The end-to-end certification: the egg economy
+
+meshql is storage agnostic, and the storage certifications above (repository, searcher,
+versions, authorization, per store) are what prove it. The test pyramid therefore has
+one end-to-end test, not one per store: `egg_economy.feature` (the contract's
+`features/proposed/egg-economy/`, event storm in the contract's `specs/egg-economy.md`),
+run against **SQLite only**, the cheapest store (`repos/sqlite`,
+`SQLiteEggEconomyTest`). It replaced the farm e2e (`farm.feature`, which also ran per store).
+
+It certifies surfaces: an event is **frozen** (PUT and DELETE answer 405), a projection
+names its **writers** (every other credential gets 403, the worker's can write), and the
+graph federates across the 14 entities and answers `at:`. The deployment is
+`com.meshql.cert.egg.EggEconomyEnv` with the schemas under `src/main/resources/egg-economy/`.
+
+The CDC, the bridge and the worker are not meshql's business and not under test.
+The harness supplies the quickest that works (`EventBridge`: a poller that hands each
+stored lay report to `HenWorker`, which folds a hen's lay reports into a
+`hen_productivity` through the restlette with the worker's credential). The library
+neither starts nor knows about them.
+
+`frozen` and `writers` are restlette options (`RestletteConfig.builder().frozen(true)`,
+`.writers(List.of("egg-worker"))`). A credential is the `sub` of the bearer JWT (or the
+bearer token itself); empty `writers` means anyone may write; reads are never restricted
+by it. It is independent of the auth plugin.
+
+Run it: `mvn -pl repos/sqlite -am test -Dtest=SQLiteEggEconomyTest -Dsurefire.failIfNoSpecifiedTests=false`
 
 ## Example Implementations
 

@@ -502,3 +502,11 @@ Always use `jq -n --arg` for safe JSON construction in shell scripts (avoids quo
 - Legacy example: `examples/legacy/` - Anti-corruption layer with PostgreSQL CDC, internal resolvers, 3 frontend apps
 - Tests: `api/graphlette/src/test/` and `api/restlette/src/test/`
 - Core interfaces: `core/src/main/java/com/meshql/core/`
+
+
+## Certification pyramid
+
+Storage agnosticism is proven by the per-store contract tests (repository, searcher, versions, authz). The one end-to-end test is the
+egg economy (`cert/.../egg`, `repos/sqlite` `SQLiteEggEconomyTest`), SQLite only: do not wire it to other stores. Restlette options:
+`frozen(true)` declares an event (PUT/DELETE answer 405), `writers(List.of(cred))` declares a projection (other writers get 403). The CDC, bridge
+and worker in the cert module are harness code; library code must not start or know about them.

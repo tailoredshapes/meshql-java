@@ -123,7 +123,7 @@ public class AuthzEnv {
 
     /**
      * Start the server. Uses reflection to avoid a compile-time dependency on the
-     * server module (the same trick {@link FarmEnv} uses to keep cert dependency-free).
+     * server module (the same trick {@code EggEconomyEnv} uses to keep cert dependency-free).
      */
     public Object buildService(Map<String, Plugin> plugins) throws Exception {
         Config config = buildConfig();
