@@ -63,6 +63,8 @@ The certification suite is not a smoke test; it is the **contract**. Choosing a 
 
 So: **never depend on a storage-engine property the certification does not guarantee.**
 
+The converse is also a mistake: **don't build a mechanism to dodge a capability the store has.** A physics worker needed "the bodies near this one"; the first design was a cell key on every state, an equality query over it and a new DSL option, when SQLite ships an R*Tree and PostgreSQL ships `cube` with GiST. The right shape was a range operator in the query template (`$between`), a declared set of coordinate fields, an index the stores that can make, and the behaviour certified in the contract's proposed tier so that the index only makes the certified answer faster. Before you design a query or an index, ask what each engine you certify against already does (`PRAGMA compile_options`, `pg_available_extensions`, `EXPLAIN`), and read the contract repo's `specs/queries-and-stores.md`.
+
 A recent design picked SQLite specifically so a worker could tail `_id INTEGER PRIMARY KEY` as a CDC cursor — the reasoning being that SQLite serialises writers, so `_id` order is commit order. It works, and it is reaching *underneath* the abstraction. Nothing in `Repository`/`Searcher` exposes a physical row id; nothing in certification promises one exists, or that it is dense, or that it is monotonic with commit order; Postgres and Mongo have no equivalent to offer. The moment that cursor exists, swap-and-replay is gone and the product is welded to one engine — for a property that was never part of the deal.
 
 The replacements, in order of what you were actually trying to do:
